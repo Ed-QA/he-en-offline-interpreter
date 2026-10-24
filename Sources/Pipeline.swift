@@ -45,9 +45,15 @@ final class Pipeline: ObservableObject {
     var translating = false
     var pendingSpeech: String?
 
-    /// Used by the SwiftUI anchor view (iOS 18+).
+    /// Used by the SwiftUI anchor view (iOS 18+). Stored type-erased because Swift
+    /// forbids `@available` on stored properties; the typed accessor below is gated.
+    private var rawTranslationConfiguration: Any?
+
     @available(iOS 18.0, *)
-    var translationConfiguration: TranslationSession.Configuration?
+    var translationConfiguration: TranslationSession.Configuration? {
+        get { rawTranslationConfiguration as? TranslationSession.Configuration }
+        set { rawTranslationConfiguration = newValue }
+    }
 
     // MARK: - Setup
 
