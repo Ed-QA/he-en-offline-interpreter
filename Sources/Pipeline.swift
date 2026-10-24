@@ -15,6 +15,15 @@ final class Pipeline: ObservableObject {
         case error = "Error"
     }
 
+    /// Model readiness shown as a green/red signal in the header.
+    enum ModelsState {
+        case loading
+        case active(String)
+        case failed(String)
+    }
+
+    @Published var modelsState: ModelsState = .loading
+
     @Published var status: Status = .idle
     @Published var running = false
     @Published var hebrewLive = ""
@@ -58,6 +67,7 @@ final class Pipeline: ObservableObject {
     // MARK: - Setup
 
     func prepare() async {
+        modelsState = .loading
         sttStatus = "he-IL available: \(recognizer.isAvailable), on-device: \(recognizer.supportsOnDevice)"
         var appleStatus: String?
         if #available(iOS 18.0, *) {
@@ -78,15 +88,32 @@ final class Pipeline: ObservableObject {
                     engineReady = true
                     engineStatus = "Bundled offline model (OPUS-MT he→en, int8)"
                         + (appleStatus.map { " — Apple: \($0)" } ?? "")
+                    modelsState = await Self.selfTest(bundled)
                 } else {
-                    engineStatus = "Bundled model failed to load: \(ONNXTranslationEngine.lastLoadError() ?? "unknown")"
+                    let why = ONNXTranslationEngine.lastLoadError() ?? "unknown"
+                    engineStatus = "Bundled model failed to load: \(why)"
+                    modelsState = .failed("load: \(why)")
                 }
             } else {
                 engineStatus = "No engine — Apple: \(appleStatus ?? "unavailable on iOS < 18")"
                     + "; bundled model missing: \(missing.joined(separator: ", "))"
+                modelsState = .failed("missing \(missing.joined(separator: ", "))")
             }
         } else {
             engineStatus = "Apple on-device translation — \(appleStatus ?? "ready")"
+            modelsState = .active("Apple on-device translation")
+        }
+    }
+
+    /// Runs one real Hebrew→English translation on the loaded model so the header can
+    /// show a green/red "models active" signal instead of a hopeful claim.
+    private static func selfTest(_ engine: ONNXTranslationEngine) async -> ModelsState {
+        do {
+            let out = try await engine.translate("אני לומד עברית כל יום עם חברים שלי.")
+            let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? .failed("self-test returned empty text") : .active(trimmed)
+        } catch {
+            return .failed("self-test: \(error)")
         }
     }
 

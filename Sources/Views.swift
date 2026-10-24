@@ -46,10 +46,39 @@ struct ContentView: View {
                 .font(.caption2)
                 .foregroundStyle(p.engineReady ? .green : .orange)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(modelsColor)
+                    .frame(width: 10, height: 10)
+                Text(modelsText)
+                    .font(.caption2.bold())
+                    .foregroundStyle(modelsColor)
+                    .lineLimit(2)
+                Spacer()
+            }
             Text("STT: \(p.sttStatus)  •  gate: \(p.lastGateReason.isEmpty ? "—" : p.lastGateReason)")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var modelsColor: Color {
+        switch p.modelsState {
+        case .loading: return .orange
+        case .active: return .green
+        case .failed: return .red
+        }
+    }
+
+    private var modelsText: String {
+        switch p.modelsState {
+        case .loading:
+            return "MODELS: loading encoder + decoder + tokenizer…"
+        case .active(let proof):
+            return "MODELS ACTIVE ✓  self-test: \(proof)"
+        case .failed(let why):
+            return "MODELS FAILED ✗  \(why)"
         }
     }
 

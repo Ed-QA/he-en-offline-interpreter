@@ -60,7 +60,10 @@ final class ONNXTranslationEngine: TranslationEngine {
         if let cached { return cached }
         guard missingFiles().isEmpty, let folder = modelFolder() else { return nil }
         do {
-            let engine = try await ONNXTranslationEngine(folder: folder)
+            // Load off the main thread — two ORT sessions (~350 MB) take seconds.
+            let engine = try await Task.detached(priority: .userInitiated) {
+                try await ONNXTranslationEngine(folder: folder)
+            }.value
             cached = engine
             loadError = nil
             return engine
