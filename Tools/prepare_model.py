@@ -34,7 +34,10 @@ EXTRA = ["tokenizer_config.json", "special_tokens_map.json", "vocab.json",
 
 
 def log(msg):
-    print(f"[prepare_model] {msg}", flush=True)
+    try:
+        print(f"[prepare_model] {msg}", flush=True)
+    except UnicodeEncodeError:  # Windows consoles default to cp1252
+        print(f"[prepare_model] {str(msg).encode('ascii', 'replace').decode()}", flush=True)
 
 
 def export_onnx():
@@ -123,30 +126,53 @@ def write_tokenizer_and_configs():
     cfg.to_json_file(os.path.join(OUT, "config.json"))
 
 
+def _metaspace(module):
+    """Metaspace with either the new (prepend_scheme) or old (add_prefix_space) API."""
+    try:
+        return module.Metaspace(replacement="▁", prepend_scheme="always")
+    except TypeError:
+        return module.Metaspace(replacement="▁", add_prefix_space=True)
+
+
 def build_tokenizer_json():
-    """Marian has no fast tokenizer in transformers, so assemble tokenizer.json from
-    source.spm (encode) + target.spm (decode) using the `tokenizers` library."""
+    """Assemble tokenizer.json for a Marian model.
+
+    The ids the network expects come from vocab.json (a shuffled 60k mapping, e.g.
+    </s> = 25568), while the SentencePiece models only provide segmentation and
+    scores. So the Unigram vocabulary is built in vocab.json id order with scores
+    taken from source.spm — that makes the produced ids identical to HF's.
+    """
     import sentencepiece as spm
     from tokenizers import Tokenizer, models, pre_tokenizers, decoders, processors
 
     source_spm = os.path.join(OUT, "source.spm")
     target_spm = os.path.join(OUT, "target.spm")
-    for path in (source_spm, target_spm):
+    vocab_file = os.path.join(OUT, "vocab.json")
+    for path in (source_spm, target_spm, vocab_file):
         if not os.path.exists(path):
-            raise SystemExit(f"missing SentencePiece model: {path}")
+            raise SystemExit(f"missing tokenizer file: {path}")
+
+    with open(vocab_file, encoding="utf-8") as handle:
+        token_to_id = json.load(handle)
 
     source = spm.SentencePieceProcessor(model_file=source_spm)
-    target = spm.SentencePieceProcessor(model_file=target_spm)
-    if source.get_piece_size() != target.get_piece_size():
-        log(f"WARNING: source/target vocab sizes differ "
-            f"({source.get_piece_size()} vs {target.get_piece_size()})")
+    spm.SentencePieceProcessor(model_file=target_spm)
+    scores = {source.id_to_piece(i): source.get_score(i) for i in range(source.get_piece_size())}
 
-    vocab = [(source.id_to_piece(i), source.get_score(i)) for i in range(source.get_piece_size())]
-    eos = source.eos_id()
+    size = max(token_to_id.values()) + 1
+    ordered = [None] * size
+    for piece, index in token_to_id.items():
+        ordered[index] = piece
+    gaps = [i for i, piece in enumerate(ordered) if piece is None]
+    if gaps:
+        raise SystemExit(f"vocab.json has gaps at ids {gaps[:5]}")
 
-    tokenizer = Tokenizer(models.Unigram(vocab, unk_id=source.unk_id()))
-    tokenizer.pre_tokenizer = pre_tokenizers.Metaspace(replacement="▁", add_prefix_space=True)
-    tokenizer.decoder = decoders.Metaspace(replacement="▁", add_prefix_space=True)
+    vocab = [(piece, float(scores.get(piece, 0.0))) for piece in ordered]
+    eos = int(token_to_id["</s>"])
+
+    tokenizer = Tokenizer(models.Unigram(vocab, unk_id=int(token_to_id.get("<unk>", 0))))
+    tokenizer.pre_tokenizer = _metaspace(pre_tokenizers)
+    tokenizer.decoder = _metaspace(decoders)
     tokenizer.post_processor = processors.TemplateProcessing(
         single="$A </s>", special_tokens=[("</s>", eos)])
 
@@ -155,10 +181,21 @@ def build_tokenizer_json():
 
     sample = "אני לומד עברית כל יום עם חברים שלי."
     ids = tokenizer.encode(sample).ids
-    log(f"tokenizer self-test — ids: {ids[:12]} … (len {len(ids)})")
+    log(f"tokenizer self-test — ids: {ids[:12]} … (len {len(ids)}, eos {eos})")
     log(f"tokenizer self-test — roundtrip: {tokenizer.decode(ids)}")
     if ids[-1] != eos:
         log(f"WARNING: tokenizer did not append eos (last id {ids[-1]} != {eos})")
+
+    try:
+        from transformers import AutoTokenizer
+        reference = AutoTokenizer.from_pretrained(MODEL)
+        ref_ids = reference(sample)["input_ids"]
+        log(f"HF reference ids: {ref_ids}")
+        log(f"parity with HF tokenizer: {ref_ids == ids}")
+        if ref_ids != ids:
+            log("WARNING: built tokenizer ids differ from the HF tokenizer")
+    except Exception as exc:  # noqa: BLE001
+        log(f"HF parity check skipped: {exc}")
 
 
 def load_sessions(folder):
