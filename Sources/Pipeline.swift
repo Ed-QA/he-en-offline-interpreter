@@ -59,19 +59,34 @@ final class Pipeline: ObservableObject {
 
     func prepare() async {
         sttStatus = "he-IL available: \(recognizer.isAvailable), on-device: \(recognizer.supportsOnDevice)"
+        var appleStatus: String?
         if #available(iOS 18.0, *) {
             let report = await AppleTranslationAvailability.check()
-            engineStatus = "Apple on-device translation — \(report.statusText)"
+            appleStatus = report.statusText
             if report.canUseInstalledPack {
                 engine = AppleTranslationEngine()
                 engineReady = true
                 translationConfiguration = AppleTranslationAvailability.configuration()
+            }
+        }
+        // The bundled int8 ONNX model is the fallback — and on iOS < 18 the only path.
+        if engine == nil {
+            let missing = ONNXTranslationEngine.missingFiles()
+            if missing.isEmpty {
+                if let bundled = await ONNXTranslationEngine.shared() {
+                    engine = bundled
+                    engineReady = true
+                    engineStatus = "Bundled offline model (OPUS-MT he→en, int8)"
+                        + (appleStatus.map { " — Apple: \($0)" } ?? "")
+                } else {
+                    engineStatus = "Bundled model failed to load: \(ONNXTranslationEngine.lastLoadError() ?? "unknown")"
+                }
             } else {
-                engine = nil
-                engineReady = false
+                engineStatus = "No engine — Apple: \(appleStatus ?? "unavailable on iOS < 18")"
+                    + "; bundled model missing: \(missing.joined(separator: ", "))"
             }
         } else {
-            engineStatus = "iOS < 18: Apple translation API unavailable"
+            engineStatus = "Apple on-device translation — \(appleStatus ?? "ready")"
         }
     }
 

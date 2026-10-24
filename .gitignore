@@ -5,3 +5,5 @@ Payload/
 .DS_Store
 __pycache__/
 *.log
+Model/
+onnx_raw/

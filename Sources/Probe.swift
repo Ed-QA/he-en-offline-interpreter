@@ -51,6 +51,11 @@ enum CapabilityProbe {
         }
         lines.append("")
 
+        // 3b) Bundled offline translation model (OPUS-MT he→en, int8 ONNX)
+        lines.append("— TRANSLATION (bundled offline model) —")
+        lines.append(await ONNXTranslationEngine.diagnostics())
+        lines.append("")
+
         // 4) TTS voices
         lines.append("— TTS (native iOS voices) —")
         let voices = Speaker.englishVoices()

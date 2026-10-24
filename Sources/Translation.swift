@@ -9,10 +9,12 @@ protocol TranslationEngine: AnyObject {
 enum TranslationError: LocalizedError {
     case notReady
     case unsupported
+    case engineFailure(String)
     var errorDescription: String? {
         switch self {
         case .notReady: return "Translation session not ready"
         case .unsupported: return "Hebrew → English not supported by this engine"
+        case .engineFailure(let message): return message
         }
     }
 }

@@ -4,6 +4,13 @@ options:
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
+packages:
+  onnxruntime:
+    url: https://github.com/microsoft/onnxruntime-swift-package-manager
+    from: 1.19.2
+  swift-transformers:
+    url: https://github.com/huggingface/swift-transformers
+    from: 1.3.0
 settings:
   base:
     SWIFT_VERSION: "5.9"
@@ -16,6 +23,13 @@ targets:
     platform: iOS
     sources:
       - Sources
+      - path: Model
+        type: folder
+    dependencies:
+      - package: onnxruntime
+        product: onnxruntime
+      - package: swift-transformers
+        product: Tokenizers
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.shedw.he2en
