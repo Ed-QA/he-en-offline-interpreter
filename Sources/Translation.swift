@@ -45,7 +45,7 @@ enum AppleTranslationAvailability {
 
     static func check() async -> Report {
         let availability = LanguageAvailability()
-        let langs = await availability.supportedLanguages.map { $0.identifier ?? "?" }
+        let langs = await availability.supportedLanguages.map { $0.minimalIdentifier }
         let status = await availability.status(from: hebrew, to: english)
         let text: String
         var installed = false

@@ -16,11 +16,12 @@ jobs:
         run: xcodegen generate
       - name: Build (unsigned)
         run: |
+          set -o pipefail
           xcodebuild -project HEENInterpreter.xcodeproj -scheme HEENInterpreter \
             -configuration Release -sdk iphoneos -derivedDataPath build \
             -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build | tail -n 40
+            build 2>&1 | tail -n 60
       - name: Package IPA
         run: |
           mkdir -p Payload

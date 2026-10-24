@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Translation
+import AVFoundation
 
 /// Live pipeline: mic → Hebrew STT → sense-completeness gate → translation → TTS.
 @MainActor
@@ -45,6 +46,7 @@ final class Pipeline: ObservableObject {
     var pendingSpeech: String?
 
     /// Used by the SwiftUI anchor view (iOS 18+).
+    @available(iOS 18.0, *)
     var translationConfiguration: TranslationSession.Configuration?
 
     // MARK: - Setup
