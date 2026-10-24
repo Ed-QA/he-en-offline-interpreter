@@ -13,20 +13,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Cache offline translation model
-        id: cache-model
-        uses: actions/cache@v4
-        with:
-          path: Model
-          key: heen-model-${{ hashFiles('Tools/prepare_model.py') }}
       - name: Prepare offline translation model (download → ONNX → int8)
-        if: steps.cache-model.outputs.cache-hit != 'true'
         run: |
           python -m pip install --quiet --upgrade pip
           python -m pip install --quiet "optimum[exporters]" onnx onnxruntime transformers sentencepiece sacremoses
           python Tools/prepare_model.py
       - name: Show model files
-        run: ls -lh Model
+        run: |
+          if [ -d Model ]; then ls -lh Model; else echo "Model/ MISSING"; exit 1; fi
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project

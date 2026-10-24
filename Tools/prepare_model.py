@@ -55,6 +55,9 @@ def quantize():
     for name in WANTED:
         src = os.path.join(RAW, name)
         dst = os.path.join(OUT, name)
+        if os.path.exists(dst) and os.path.getsize(dst) > 1_000_000:
+            log(f"{name} already quantized — skipping")
+            continue
         if not os.path.exists(src):
             raise SystemExit(f"missing export: {src} (files: {sorted(os.listdir(RAW))})")
         t0 = time.time()
