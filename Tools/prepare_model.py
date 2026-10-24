@@ -75,9 +75,21 @@ def quantize():
             raise SystemExit(f"missing export: {src} (files: {sorted(os.listdir(RAW))})")
         t0 = time.time()
         pre = src.replace(".onnx", ".pre.onnx")
+        try:
+            import collections
+            import onnx
+            types = collections.Counter(n.op_type for n in onnx.load(src, load_external_data=False).graph.node)
+            log(f"{name} node types: {dict(types.most_common(8))}")
+        except Exception as exc:  # noqa: BLE001
+            log(f"node-type inspection failed: {exc}")
         log(f"pre-processing {name} (symbolic shape inference + ONNX simplify)…")
         quant_pre_process(src, pre)
-        quantize_dynamic(pre, dst, weight_type=QuantType.QInt8)
+        try:
+            quantize_dynamic(pre, dst, weight_type=QuantType.QInt8,
+                             op_types_to_quantize=["MatMul", "Gemm", "Attention", "Gather", "LSTM"])
+        except Exception as exc:  # noqa: BLE001
+            log(f"extended op list rejected ({exc}) — retrying with ORT defaults")
+            quantize_dynamic(pre, dst, weight_type=QuantType.QInt8)
         mb = os.path.getsize(dst) / 1e6
         src_mb = os.path.getsize(src) / 1e6
         log(f"quantized {name}: {src_mb:.1f} MB fp32 → {mb:.1f} MB int8 in {time.time() - t0:.0f}s")
@@ -85,9 +97,24 @@ def quantize():
 
 def write_tokenizer_and_configs():
     from transformers import AutoTokenizer, MarianConfig
-    fast = AutoTokenizer.from_pretrained(MODEL, use_fast=True)
-    fast.save_pretrained(OUT)          # writes tokenizer.json + tokenizer_config.json
-    log("wrote fast tokenizer (tokenizer.json)")
+    tokenizer_json = os.path.join(OUT, "tokenizer.json")
+    if os.path.exists(tokenizer_json) and os.path.getsize(tokenizer_json) > 1000:
+        log("tokenizer.json already present")
+    else:
+        try:
+            fast = AutoTokenizer.from_pretrained(MODEL, use_fast=True)
+            fast.save_pretrained(OUT)
+        except Exception as exc:  # noqa: BLE001
+            log(f"use_fast=True path failed: {exc}")
+        if not os.path.exists(tokenizer_json):
+            log("still no tokenizer.json — converting the slow tokenizer to fast")
+            from transformers.convert_slow_tokenizer import convert_slow_tokenizer
+            slow = AutoTokenizer.from_pretrained(MODEL, use_fast=False)
+            convert_slow_tokenizer(slow).save(tokenizer_json)
+        if os.path.exists(tokenizer_json):
+            log(f"tokenizer.json: {os.path.getsize(tokenizer_json) / 1e6:.2f} MB")
+        else:
+            log("WARNING: tokenizer.json could not be created — the app cannot tokenize")
     cfg = MarianConfig.from_pretrained(MODEL)
     cfg.to_json_file(os.path.join(OUT, "config.json"))
     for name in EXTRA:
