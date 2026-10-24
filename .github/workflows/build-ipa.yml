@@ -21,6 +21,10 @@ jobs:
       - name: Show model files
         run: |
           if [ -d Model ]; then ls -lh Model; else echo "Model/ MISSING"; exit 1; fi
+      - name: Tokenizer pre-flight (same Swift tokenizer code as the app)
+        run: |
+          cd Tools/TokenizerCheck
+          swift run -c release TokenizerCheck ../../Model
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project
