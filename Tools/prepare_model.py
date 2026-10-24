@@ -122,6 +122,20 @@ def write_tokenizer_and_configs():
             log(f"tokenizer.json: {os.path.getsize(tokenizer_json) / 1e6:.2f} MB")
         else:
             log("WARNING: tokenizer.json could not be created — the app cannot tokenize")
+    # swift-transformers chooses its tokenizer *model* from tokenizer_class: the
+    # generic "PreTrainedTokenizer" entry maps to its BPE implementation (which
+    # crashes on a Unigram file), while "XLMRobertaTokenizer" maps to Unigram —
+    # the model type our tokenizer.json actually uses.
+    config_path = os.path.join(OUT, "tokenizer_config.json")
+    config = {}
+    if os.path.exists(config_path):
+        with open(config_path, encoding="utf-8") as handle:
+            config = json.load(handle)
+    config["tokenizer_class"] = "XLMRobertaTokenizer"
+    config.setdefault("model_max_length", 512)
+    with open(config_path, "w", encoding="utf-8") as handle:
+        json.dump(config, handle, indent=1, ensure_ascii=False)
+    log("tokenizer_config.json: tokenizer_class=XLMRobertaTokenizer (→ swift Unigram)")
     cfg = MarianConfig.from_pretrained(MODEL)
     cfg.to_json_file(os.path.join(OUT, "config.json"))
 
