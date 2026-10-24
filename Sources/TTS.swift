@@ -17,9 +17,18 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
     func speak(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        // Re-assert a speaker-friendly session right before talking. The recognizer
+        // keeps .playAndRecord alive, and without this the synthesizer can end up
+        // routed to the receiver (earpiece) or heavily ducked — i.e. inaudible.
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playAndRecord, mode: .default,
+                                 options: [.defaultToSpeaker, .allowBluetoothA2DP, .duckOthers])
+        try? session.overrideOutputAudioPort(.speaker)
+        try? session.setActive(true)
         let utterance = AVSpeechUtterance(string: trimmed)
         utterance.voice = Self.voice(for: voiceIdentifier) ?? Self.defaultEnglishVoice()
         utterance.rate = rate
+        utterance.volume = 1.0
         utterance.postUtteranceDelay = 0.05
         synth.speak(utterance)
     }

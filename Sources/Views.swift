@@ -9,6 +9,7 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 10) {
             header
+            if let err = p.lastError { errorBanner(err) }
             hebrewPanel
             englishPanel
             controls
@@ -19,66 +20,76 @@ struct ContentView: View {
         .sheet(isPresented: $showLog) { LogSheet() }
         .sheet(isPresented: $showSettings) { SettingsSheet() }
         .task { await p.prepare() }
-        .alert("Error", isPresented: Binding(
-            get: { p.lastError != nil },
-            set: { if !$0 { p.lastError = nil } }
-        )) {
-            Button("OK") { p.lastError = nil }
-        } message: {
-            Text(p.lastError ?? "")
-        }
     }
 
+    /// Errors are shown inline — never as a modal dialog that blocks the screen.
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text(message)
+                .font(.caption)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button { p.lastError = nil } label: {
+                Image(systemName: "xmark.circle.fill")
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.red.opacity(0.85)))
+    }
+
+    /// One big status light. Green = ready and working. Nothing else to read.
     private var header: some View {
-        VStack(spacing: 4) {
-            HStack {
-                Circle()
-                    .fill(color(for: p.status))
-                    .frame(width: 10, height: 10)
-                Text(p.status.rawValue)
-                    .font(.headline)
-                Spacer()
-                Text(p.running ? "ON AIR" : "OFF")
-                    .font(.caption.bold())
-                    .foregroundStyle(p.running ? .green : .secondary)
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(ledColor.opacity(0.22)).frame(width: 46, height: 46)
+                Circle().fill(ledColor).frame(width: 26, height: 26)
+                    .shadow(color: ledColor.opacity(0.9), radius: 8)
             }
-            Text(p.engineStatus)
-                .font(.caption2)
-                .foregroundStyle(p.engineReady ? .green : .orange)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(modelsColor)
-                    .frame(width: 10, height: 10)
-                Text(modelsText)
-                    .font(.caption2.bold())
-                    .foregroundStyle(modelsColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ledTitle)
+                    .font(.title3.bold())
+                    .foregroundStyle(ledColor)
+                Text(ledSubtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
-                Spacer()
             }
-            Text("STT: \(p.sttStatus)  •  gate: \(p.lastGateReason.isEmpty ? "—" : p.lastGateReason)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer()
+            Text(p.running ? "ON AIR" : "OFF")
+                .font(.caption.bold())
+                .foregroundStyle(p.running ? .green : .secondary)
         }
     }
 
-    private var modelsColor: Color {
-        switch p.modelsState {
-        case .loading: return .orange
-        case .active: return .green
-        case .failed: return .red
+    private var ledColor: Color {
+        if p.lastError != nil { return .red }
+        if case .failed = p.modelsState { return .red }
+        switch p.status {
+        case .error: return .red
+        case .idle: return p.modelsState.isActive ? .green : .orange
+        case .listening, .translating, .speaking: return .green
         }
     }
 
-    private var modelsText: String {
+    private var ledTitle: String {
+        if p.lastError != nil { return "ERROR" }
+        if case .failed = p.modelsState { return "MODELS FAILED" }
+        switch p.status {
+        case .idle: return p.modelsState.isActive ? "READY" : "STARTING…"
+        case .listening: return "LISTENING"
+        case .translating: return "TRANSLATING"
+        case .speaking: return "SPEAKING"
+        case .error: return "ERROR"
+        }
+    }
+
+    private var ledSubtitle: String {
         switch p.modelsState {
-        case .loading:
-            return "MODELS: loading encoder + decoder + tokenizer…"
-        case .active(let proof):
-            return "MODELS ACTIVE ✓  self-test: \(proof)"
-        case .failed(let why):
-            return "MODELS FAILED ✗  \(why)"
+        case .loading: return "loading offline model…"
+        case .active(let proof): return "models active ✓  (\(proof))"
+        case .failed(let why): return "model problem: \(why)"
         }
     }
 
@@ -135,17 +146,6 @@ struct ContentView: View {
                     smallButton("list.bullet.rectangle", "Full log") { showLog = true }
                 }
                 HStack(spacing: 10) {
-                    Button {
-                        // Reserved for the next phase: earbud-mic English → Hebrew via phone speaker.
-                    } label: {
-                        Label("ENG→HEB", systemImage: "lock.fill")
-                            .font(.caption.bold())
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Color(.tertiarySystemGroupedBackground)))
-                            .foregroundStyle(.secondary)
-                    }
-                    .disabled(true)
                     smallButton("gearshape", "Settings") { showSettings = true }
                 }
             }

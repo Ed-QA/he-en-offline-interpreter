@@ -20,6 +20,10 @@ final class HebrewRecognizer {
     var onFinal: ((String) -> Void)?
     var onError: ((String) -> Void)?
 
+    /// While true the mic tap is dropped: used so the speaker's own voice
+    /// is never transcribed (and never re-translated into a feedback loop).
+    var muted = false
+
     var supportsOnDevice: Bool { recognizer?.supportsOnDeviceRecognition ?? false }
     var isAvailable: Bool { recognizer?.isAvailable ?? false }
 
@@ -38,8 +42,12 @@ final class HebrewRecognizer {
 
     func start() throws {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat,
-                                options: [.defaultToSpeaker, .allowBluetoothA2DP])
+        // NOTE: `.voiceChat` turns on voice-processing (AEC/AGC) which silences or
+        // badly ducks AVSpeechSynthesizer output — that is why the English speech
+        // was inaudible. `.default` keeps the mic live while the speaker plays loud.
+        try session.setCategory(.playAndRecord, mode: .default,
+                                options: [.defaultToSpeaker, .allowBluetoothA2DP, .duckOthers])
+        try session.overrideOutputAudioPort(.speaker)
         try session.setActive(true, options: .notifyOthersOnDeactivation)
 
         let input = audioEngine.inputNode
@@ -47,6 +55,7 @@ final class HebrewRecognizer {
         if !tapInstalled {
             input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
                 guard let self else { return }
+                guard !self.muted else { return }
                 self.currentRequest?.append(buffer)
                 self.trackLevels(buffer)
             }

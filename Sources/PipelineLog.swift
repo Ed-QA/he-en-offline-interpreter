@@ -31,12 +31,12 @@ extension Pipeline {
         }
     }
 
-    /// Partials are noisy — only log when the recognised text actually changes.
+    /// Partials are UI-only. They are deliberately NOT written to the trace file,
+    /// so the on-device log stays a short list of real events (emit → translate → speak).
     func tracePartial(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != Self.lastTracedPartial else { return }
         Self.lastTracedPartial = trimmed
-        Self.trace("STT partial: \(trimmed)")
     }
 
     // MARK: - Log export

@@ -18,28 +18,36 @@ extension Pipeline {
     }
 
     func handlePartial(_ text: String) {
-        let merged = TextUtil.mergeOverlap(accumulated, text)
-        hebrewLive = merged
-        tracePartial(merged)
-        evaluate(merged, isFinal: false)
+        // The recognizer re-sends the whole utterance on every partial. Once a sentence
+        // has been emitted, its words must not be counted again — otherwise the same
+        // sentence is re-translated and re-spoken a dozen times.
+        let stripped = Self.removePrefix(text, prefix: lastEmitted)
+        accumulated = TextUtil.mergeOverlap(accumulated, stripped)
+        hebrewLive = accumulated.isEmpty ? lastEmitted : accumulated
+        tracePartial(accumulated)
+        evaluate(accumulated, isFinal: false)
     }
 
     func handleFinal(_ text: String) {
         let stripped = Self.removePrefix(text, prefix: lastEmitted)
         accumulated = TextUtil.mergeOverlap(accumulated, stripped)
-        hebrewLive = accumulated
+        hebrewLive = accumulated.isEmpty ? lastEmitted : accumulated
         Self.trace("STT final: \(text)")
         evaluate(accumulated, isFinal: true)
     }
 
     func evaluate(_ text: String, isFinal: Bool) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let silence = recognizer.silenceDuration
         let age = pendingSince.map { Date().timeIntervalSince($0) } ?? 0
         let outcome = gate.evaluate(text, trailingSilence: silence, isSTTFinal: isFinal, pendingAge: age)
         lastGateReason = outcome.reason
         if outcome.emit {
+            // Anti-spam: never emit twice in the same breath, and never for a one-word stub.
+            if !isFinal, Date().timeIntervalSince(lastEmitAt) < 0.9 { return }
+            if TextUtil.tokenize(text).count < 2 { return }
             emit(text, forced: outcome.forced)
-        } else if pendingSince == nil, !text.trimmingCharacters(in: .whitespaces).isEmpty {
+        } else if pendingSince == nil {
             pendingSince = Date()
         }
     }
@@ -48,9 +56,12 @@ extension Pipeline {
         let sentence = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sentence.isEmpty else { return }
         lastEmitted = sentence
+        lastEmitAt = Date()
         accumulated = ""
         pendingSince = nil
-        hebrewLive = ""
+        // Keep the sentence on screen — blanking the Hebrew panel made it look like
+        // nothing had been recognised at all.
+        hebrewLive = sentence
         log.append(LogEntry(date: Date(), hebrew: sentence, english: "", forced: forced))
         Self.trace("gate EMIT\(forced ? " (incomplete, forced)" : ""): \(sentence)")
         queue.append(sentence)
@@ -115,14 +126,30 @@ extension Pipeline {
     func tick() {
         guard running else { return }
         recognizer.restartIfNeeded()
-        if !hebrewLive.isEmpty && recognizer.silenceDuration >= gate.mode.silenceToEmit {
-            evaluate(hebrewLive, isFinal: false)
+        if !accumulated.isEmpty && recognizer.silenceDuration >= gate.mode.silenceToEmit {
+            evaluate(accumulated, isFinal: false)
         }
         if let speech = pendingSpeech, !recognizer.isSpeechActive, !speaker.isSpeaking, queue.isEmpty {
             pendingSpeech = nil
             status = .speaking
+            // Mute the mic while talking: the speaker's own English must never be
+            // transcribed and re-translated (feedback loop), and the TTS must not be cut off.
+            recognizer.muted = true
+            speaker.onFinish = { [weak self] in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.recognizer.muted = false
+                    self.accumulated = ""
+                    self.pendingSince = nil
+                    self.status = self.running ? .listening : .idle
+                }
+            }
             Self.trace("TTS speaks: \(speech)")
             speaker.speak(speech)
+        }
+        // Safety net: if the synthesizer never reported start/finish, un-mute anyway.
+        if recognizer.muted && !speaker.isSpeaking && pendingSpeech == nil && status != .speaking {
+            recognizer.muted = false
         }
         if !speaker.isSpeaking && status == .speaking { status = running ? .listening : .idle }
     }

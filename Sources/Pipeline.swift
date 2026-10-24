@@ -20,6 +20,11 @@ final class Pipeline: ObservableObject {
         case loading
         case active(String)
         case failed(String)
+
+        var isActive: Bool {
+            if case .active = self { return true }
+            return false
+        }
     }
 
     @Published var modelsState: ModelsState = .loading
@@ -50,6 +55,9 @@ final class Pipeline: ObservableObject {
     var gate = HebrewCompletenessGate()
     var accumulated = ""
     var lastEmitted = ""
+    /// When the previous sentence was emitted — used as an anti-spam cooldown so the
+    /// same growing sentence is not re-translated and re-spoken on every partial.
+    var lastEmitAt = Date.distantPast
     var pendingSince: Date?
     var timer: Timer?
     var engine: TranslationEngine?
@@ -170,10 +178,13 @@ final class Pipeline: ObservableObject {
         timer?.invalidate()
         timer = nil
         recognizer.stop()
+        recognizer.muted = false
         speaker.stop()
         running = false
         status = .idle
         hebrewLive = ""
+        accumulated = ""
+        pendingSince = nil
         Self.trace("STOP listening")
     }
 
