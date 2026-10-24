@@ -16,7 +16,7 @@ jobs:
       - name: Prepare offline translation model (download → ONNX → int8)
         run: |
           python -m pip install --quiet --upgrade pip
-          python -m pip install --quiet "optimum[exporters]" onnx onnxruntime transformers sentencepiece sacremoses
+          python -m pip install --quiet "optimum[exporters]<2" torch onnx onnxruntime transformers sentencepiece sacremoses
           python Tools/prepare_model.py
       - name: Show model files
         run: |

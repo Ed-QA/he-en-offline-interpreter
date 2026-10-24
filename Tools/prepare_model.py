@@ -42,11 +42,20 @@ def export_onnx():
     if os.path.exists(marker):
         log(f"re-using existing export in {RAW}")
         return
-    from optimum.exporters.onnx import main_export
     log(f"exporting {MODEL} to ONNX (task=text2text-generation-with-past)…")
     t0 = time.time()
-    main_export(model_name_or_path=MODEL, output=RAW,
-                task="text2text-generation-with-past", opset=17)
+    try:
+        from optimum.exporters.onnx import main_export
+        main_export(model_name_or_path=MODEL, output=RAW,
+                    task="text2text-generation-with-past", opset=17)
+    except ModuleNotFoundError as exc:
+        import subprocess
+        import importlib.metadata as md
+        log(f"python export API unavailable ({exc}); optimum={md.version('optimum')} — using optimum-cli")
+        subprocess.run(["optimum-cli", "export", "onnx",
+                        "--model", MODEL,
+                        "--task", "text2text-generation-with-past",
+                        "--opset", "17", RAW], check=True)
     log(f"export finished in {time.time() - t0:.0f}s")
 
 
