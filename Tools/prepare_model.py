@@ -61,18 +61,26 @@ def export_onnx():
 
 def quantize():
     from onnxruntime.quantization import quantize_dynamic, QuantType
+    try:
+        from onnxruntime.quantization.shape_inference import quant_pre_process
+    except ImportError:  # older ORT layouts
+        from onnxruntime.quantization import quant_pre_process
     for name in WANTED:
         src = os.path.join(RAW, name)
         dst = os.path.join(OUT, name)
-        if os.path.exists(dst) and os.path.getsize(dst) > 1_000_000:
+        if os.path.exists(dst) and 1_000_000 < os.path.getsize(dst) < 120_000_000:
             log(f"{name} already quantized — skipping")
             continue
         if not os.path.exists(src):
             raise SystemExit(f"missing export: {src} (files: {sorted(os.listdir(RAW))})")
         t0 = time.time()
-        quantize_dynamic(src, dst, weight_type=QuantType.QInt8)
+        pre = src.replace(".onnx", ".pre.onnx")
+        log(f"pre-processing {name} (symbolic shape inference + ONNX simplify)…")
+        quant_pre_process(src, pre)
+        quantize_dynamic(pre, dst, weight_type=QuantType.QInt8)
         mb = os.path.getsize(dst) / 1e6
-        log(f"quantized {name}: {mb:.1f} MB in {time.time() - t0:.0f}s")
+        src_mb = os.path.getsize(src) / 1e6
+        log(f"quantized {name}: {src_mb:.1f} MB fp32 → {mb:.1f} MB int8 in {time.time() - t0:.0f}s")
 
 
 def write_tokenizer_and_configs():

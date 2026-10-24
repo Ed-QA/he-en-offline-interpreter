@@ -184,10 +184,11 @@ final class ONNXTranslationEngine: TranslationEngine {
     }
 
     private static func int64Value(_ values: [Int], shape: [Int]) throws -> ORTValue {
-        let data = NSMutableData(length: values.count * MemoryLayout<Int64>.size)!
-        values.withUnsafeBufferPointer { buffer in
+        var widened = values.map { Int64($0) }
+        let data = NSMutableData(length: widened.count * MemoryLayout<Int64>.size)!
+        widened.withUnsafeBufferPointer { buffer in
             data.mutableBytes.assumingMemoryBound(to: Int64.self)
-                .update(from: buffer.baseAddress!, count: values.count)
+                .update(from: buffer.baseAddress!, count: widened.count)
         }
         return try ORTValue(tensorData: data, elementType: .int64,
                             shape: shape.map { NSNumber(value: $0) })
