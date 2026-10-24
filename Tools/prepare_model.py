@@ -76,6 +76,9 @@ def write_tokenizer_and_configs():
     for name in EXTRA:
         src = os.path.join(RAW, name)
         if os.path.exists(src):
+            shutil.copy(src, os.path.join(OUT, name))
+
+
 def load_sessions(folder):
     import onnxruntime as ort
     opts = ort.SessionOptions()
@@ -177,4 +180,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-            shutil.copy(src, os.path.join(OUT, name))
