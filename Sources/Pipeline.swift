@@ -58,6 +58,9 @@ final class Pipeline: ObservableObject {
     /// When the previous sentence was emitted — used as an anti-spam cooldown so the
     /// same growing sentence is not re-translated and re-spoken on every partial.
     var lastEmitAt = Date.distantPast
+    /// When the last TTS request was made — the mic un-mute safety net waits on this so a
+    /// slow voice load can never un-mute us into our own English.
+    var lastSpeakRequestAt = Date.distantPast
     var pendingSince: Date?
     var timer: Timer?
     var engine: TranslationEngine?

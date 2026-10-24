@@ -144,13 +144,17 @@ extension Pipeline {
                     self.status = self.running ? .listening : .idle
                 }
             }
+            lastSpeakRequestAt = Date()
             Self.trace("TTS speaks: \(speech)")
             speaker.speak(speech)
         }
-        // Safety net: if the synthesizer never reported start/finish, un-mute anyway.
-        if recognizer.muted && !speaker.isSpeaking && pendingSpeech == nil && status != .speaking {
+        // Safety net: if the synthesizer never reported start/finish, un-mute anyway — but
+        // only well after the request. Loading a voice can take a moment, and un-muting too
+        // early would feed our own English straight back into the recognizer.
+        let speakAge = Date().timeIntervalSince(lastSpeakRequestAt)
+        if recognizer.muted && !speaker.isSpeaking && pendingSpeech == nil && status != .speaking && speakAge > 2.0 {
             recognizer.muted = false
         }
-        if !speaker.isSpeaking && status == .speaking { status = running ? .listening : .idle }
+        if !speaker.isSpeaking && status == .speaking && speakAge > 0.5 { status = running ? .listening : .idle }
     }
 }
