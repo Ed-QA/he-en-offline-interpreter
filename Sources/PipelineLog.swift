@@ -3,6 +3,42 @@ import SwiftUI
 
 extension Pipeline {
 
+    // MARK: - On-device trace (the PC pulls Documents/live.log to verify a run)
+
+    private static let traceQueue = DispatchQueue(label: "heen.trace")
+
+    nonisolated static func trace(_ line: String) {
+        NSLog("[HEEN] %@", line)   // visible in the device syslog, streamed from the PC
+        let stamp = DateFormatter.logStamp.string(from: Date())
+        let text = "[\(stamp)] \(line)\n"
+        traceQueue.async {
+            guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+            let url = dir.appendingPathComponent("live.log")
+            if let handle = try? FileHandle(forWritingTo: url) {
+                handle.seekToEndOfFile()
+                handle.write(text.data(using: .utf8) ?? Data())
+                try? handle.close()
+            } else {
+                try? text.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    nonisolated static func resetTrace() {
+        traceQueue.async {
+            guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("live.log"))
+        }
+    }
+
+    /// Partials are noisy — only log when the recognised text actually changes.
+    func tracePartial(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != Self.lastTracedPartial else { return }
+        Self.lastTracedPartial = trimmed
+        Self.trace("STT partial: \(trimmed)")
+    }
+
     // MARK: - Log export
 
     func logText() -> String {

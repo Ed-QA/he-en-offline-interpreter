@@ -20,6 +20,7 @@ extension Pipeline {
     func handlePartial(_ text: String) {
         let merged = TextUtil.mergeOverlap(accumulated, text)
         hebrewLive = merged
+        tracePartial(merged)
         evaluate(merged, isFinal: false)
     }
 
@@ -27,6 +28,7 @@ extension Pipeline {
         let stripped = Self.removePrefix(text, prefix: lastEmitted)
         accumulated = TextUtil.mergeOverlap(accumulated, stripped)
         hebrewLive = accumulated
+        Self.trace("STT final: \(text)")
         evaluate(accumulated, isFinal: true)
     }
 
@@ -50,6 +52,7 @@ extension Pipeline {
         pendingSince = nil
         hebrewLive = ""
         log.append(LogEntry(date: Date(), hebrew: sentence, english: "", forced: forced))
+        Self.trace("gate EMIT\(forced ? " (incomplete, forced)" : ""): \(sentence)")
         queue.append(sentence)
         processQueue()
     }
@@ -72,13 +75,16 @@ extension Pipeline {
         translating = true
         let sentence = queue.removeFirst()
         status = .translating
+        Self.trace("translate IN: \(sentence)")
         Task { @MainActor in
             var translated = ""
             if let engine {
                 do {
                     translated = try await engine.translate(sentence)
+                    Self.trace("translate OUT: \(translated)")
                 } catch {
                     self.lastError = error.localizedDescription
+                    Self.trace("translate ERROR: \(error.localizedDescription)")
                 }
             } else {
                 self.lastError = "No offline translation engine available"
@@ -115,6 +121,7 @@ extension Pipeline {
         if let speech = pendingSpeech, !recognizer.isSpeechActive, !speaker.isSpeaking, queue.isEmpty {
             pendingSpeech = nil
             status = .speaking
+            Self.trace("TTS speaks: \(speech)")
             speaker.speak(speech)
         }
         if !speaker.isSpeaking && status == .speaking { status = running ? .listening : .idle }

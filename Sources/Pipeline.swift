@@ -42,6 +42,9 @@ final class Pipeline: ObservableObject {
     @Published var voiceSampleProgress: String?
     @Published var voiceSampleReport: VoiceSampler.Report?
 
+    /// Last partial text written to the on-device trace (de-duplication).
+    static var lastTracedPartial = ""
+
     let recognizer = HebrewRecognizer()
     let speaker = Speaker()
     var gate = HebrewCompletenessGate()
@@ -67,6 +70,8 @@ final class Pipeline: ObservableObject {
     // MARK: - Setup
 
     func prepare() async {
+        Self.resetTrace()
+        Self.trace("=== launch build \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") on \(UIDevice.current.name), iOS \(UIDevice.current.systemVersion)")
         modelsState = .loading
         sttStatus = "he-IL available: \(recognizer.isAvailable), on-device: \(recognizer.supportsOnDevice)"
         var appleStatus: String?
@@ -111,6 +116,7 @@ final class Pipeline: ObservableObject {
         do {
             let out = try await engine.translate("אני לומד עברית כל יום עם חברים שלי.")
             let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            Self.trace("self-test translation: \(trimmed)")
             return trimmed.isEmpty ? .failed("self-test returned empty text") : .active(trimmed)
         } catch {
             return .failed("self-test: \(error)")
@@ -149,9 +155,11 @@ final class Pipeline: ObservableObject {
                         self.running = true
                         self.status = .listening
                         self.startTimer()
+                        Self.trace("START listening (he-IL, on-device \(self.recognizer.supportsOnDevice))")
                     } catch {
                         self.lastError = error.localizedDescription
                         self.status = .error
+                        Self.trace("START failed: \(error.localizedDescription)")
                     }
                 }
             }
@@ -166,6 +174,7 @@ final class Pipeline: ObservableObject {
         running = false
         status = .idle
         hebrewLive = ""
+        Self.trace("STOP listening")
     }
 
     func repeatLast() {
