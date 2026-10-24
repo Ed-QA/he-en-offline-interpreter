@@ -97,6 +97,12 @@ def quantize():
 
 def write_tokenizer_and_configs():
     from transformers import AutoTokenizer, MarianConfig
+    # Copy the tokenizer side files (source.spm/target.spm/vocab.json/…) first —
+    # building tokenizer.json needs the SentencePiece models.
+    for name in EXTRA:
+        src = os.path.join(RAW, name)
+        if os.path.exists(src):
+            shutil.copy(src, os.path.join(OUT, name))
     tokenizer_json = os.path.join(OUT, "tokenizer.json")
     if os.path.exists(tokenizer_json) and os.path.getsize(tokenizer_json) > 1000:
         log("tokenizer.json already present")
@@ -107,20 +113,52 @@ def write_tokenizer_and_configs():
         except Exception as exc:  # noqa: BLE001
             log(f"use_fast=True path failed: {exc}")
         if not os.path.exists(tokenizer_json):
-            log("still no tokenizer.json — converting the slow tokenizer to fast")
-            from transformers.convert_slow_tokenizer import convert_slow_tokenizer
-            slow = AutoTokenizer.from_pretrained(MODEL, use_fast=False)
-            convert_slow_tokenizer(slow).save(tokenizer_json)
+            log("building tokenizer.json directly from the SentencePiece models")
+            build_tokenizer_json()
         if os.path.exists(tokenizer_json):
             log(f"tokenizer.json: {os.path.getsize(tokenizer_json) / 1e6:.2f} MB")
         else:
             log("WARNING: tokenizer.json could not be created — the app cannot tokenize")
     cfg = MarianConfig.from_pretrained(MODEL)
     cfg.to_json_file(os.path.join(OUT, "config.json"))
-    for name in EXTRA:
-        src = os.path.join(RAW, name)
-        if os.path.exists(src):
-            shutil.copy(src, os.path.join(OUT, name))
+
+
+def build_tokenizer_json():
+    """Marian has no fast tokenizer in transformers, so assemble tokenizer.json from
+    source.spm (encode) + target.spm (decode) using the `tokenizers` library."""
+    import sentencepiece as spm
+    from tokenizers import Tokenizer, models, pre_tokenizers, decoders, processors
+
+    source_spm = os.path.join(OUT, "source.spm")
+    target_spm = os.path.join(OUT, "target.spm")
+    for path in (source_spm, target_spm):
+        if not os.path.exists(path):
+            raise SystemExit(f"missing SentencePiece model: {path}")
+
+    source = spm.SentencePieceProcessor(model_file=source_spm)
+    target = spm.SentencePieceProcessor(model_file=target_spm)
+    if source.get_piece_size() != target.get_piece_size():
+        log(f"WARNING: source/target vocab sizes differ "
+            f"({source.get_piece_size()} vs {target.get_piece_size()})")
+
+    vocab = [(source.id_to_piece(i), source.get_score(i)) for i in range(source.get_piece_size())]
+    eos = source.eos_id()
+
+    tokenizer = Tokenizer(models.Unigram(vocab, unk_id=source.unk_id()))
+    tokenizer.pre_tokenizer = pre_tokenizers.Metaspace(replacement="▁", add_prefix_space=True)
+    tokenizer.decoder = decoders.Metaspace(replacement="▁", add_prefix_space=True)
+    tokenizer.post_processor = processors.TemplateProcessing(
+        single="$A </s>", special_tokens=[("</s>", eos)])
+
+    tokenizer_json = os.path.join(OUT, "tokenizer.json")
+    tokenizer.save(tokenizer_json)
+
+    sample = "אני לומד עברית כל יום עם חברים שלי."
+    ids = tokenizer.encode(sample).ids
+    log(f"tokenizer self-test — ids: {ids[:12]} … (len {len(ids)})")
+    log(f"tokenizer self-test — roundtrip: {tokenizer.decode(ids)}")
+    if ids[-1] != eos:
+        log(f"WARNING: tokenizer did not append eos (last id {ids[-1]} != {eos})")
 
 
 def load_sessions(folder):
