@@ -71,14 +71,53 @@ jobs:
             -maximum-test-execution-time-allowance 300 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             2>&1 | tail -n 400
+      - name: Switch the simulator to dark appearance and large text
+        run: |
+          xcrun simctl ui "${{ steps.sim.outputs.udid }}" appearance dark
+          xcrun simctl ui "${{ steps.sim.outputs.udid }}" content_size accessibility-extra-large \
+            || echo "content_size is not supported by this simctl build"
+      - name: UI screenshots in dark mode and large text
+        # Same UI tests, second result bundle: proves the screens survive dark mode and
+        # Dynamic Type instead of relying on the light-mode shots alone.
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project HEENInterpreter.xcodeproj \
+            -scheme HEENInterpreter \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -only-testing:HEENInterpreterUITests \
+            -resultBundlePath TestResultsDark.xcresult \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 180 \
+            -maximum-test-execution-time-allowance 420 \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | tail -n 200
       - name: Print failing tests (best effort)
         if: failure()
         run: |
-          xcrun xcresulttool get test-results summary --path TestResults.xcresult 2>/dev/null | head -c 4000 || echo "xcresult not readable"
+          for b in TestResults TestResultsDark; do
+            echo "--- $b ---"
+            xcrun xcresulttool get test-results summary --path "$b.xcresult" 2>/dev/null | head -c 3000 \
+              || echo "not readable"
+          done
+      - name: Export the screenshots from the result bundles
+        if: always()
+        run: |
+          mkdir -p shots
+          for b in TestResults TestResultsDark; do
+            if [ -d "$b.xcresult" ]; then
+              xcrun xcresulttool export attachments --path "$b.xcresult" --output-path "shots/$b" \
+                || echo "attachment export failed for $b"
+            fi
+          done
+          python3 Tools/export_shots.py
       - name: Upload test results and screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: simulator-test-results
-          path: TestResults.xcresult
+          path: |
+            TestResults.xcresult
+            TestResultsDark.xcresult
+            shots/out
           if-no-files-found: warn
