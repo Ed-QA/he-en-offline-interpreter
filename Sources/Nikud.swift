@@ -27,12 +27,14 @@ enum NikudError: LocalizedError {
 }
 
 enum NikudModel {
-    static let folderName = "Nikud"
+    static let folderName = "Model/Nikud"
     static let modelFile = "phonikud-1.0.int8.onnx"
     static let tokenizerFile = "tokenizer.json"
 
     static func folder() -> URL? {
-        Bundle.main.url(forResource: folderName, withExtension: nil)
+        Bundle.main
+            .url(forResource: "phonikud-1.0.int8", withExtension: "onnx", subdirectory: folderName)?
+            .deletingLastPathComponent()
             ?? Bundle.main.resourceURL?.appendingPathComponent(folderName, isDirectory: true)
     }
 
