@@ -68,16 +68,16 @@ final class LatencyBudgetTests: XCTestCase {
         }
         _ = try await engine.translate(oneWord)   // warm the graph
 
-        let short = await msAsync { _ = try await engine.translate(sixWords) }
-        let medium = await msAsync { _ = try await engine.translate(fifteenWords) }
-        let long = await msAsync {
+        let short = try await msAsync { _ = try await engine.translate(sixWords) }
+        let medium = try await msAsync { _ = try await engine.translate(fifteenWords) }
+        let long = try await msAsync {
             _ = try await engine.translate(Array(repeating: sixWords, count: 7).joined(separator: " "))
         }
         print("LATENCY warm translate 6w \(short) ms | 15w \(medium) ms | 40w \(long) ms")
 
         let pipeline = warmPipeline()
         let nikudMS = ms { _ = pipeline.diacritize(sixWords) }
-        let translateMS = await msAsync { _ = try await engine.translate(sixWords) }
+        let translateMS = try await msAsync { _ = try await engine.translate(sixWords) }
         let endToEnd = nikudMS + translateMS
         print("LATENCY end-to-end 6w (nikud \(nikudMS) ms + translate \(translateMS) ms) \(endToEnd) ms")
         XCTAssertLessThan(endToEnd, 5_000, "one sentence took \(endToEnd) ms end to end")
