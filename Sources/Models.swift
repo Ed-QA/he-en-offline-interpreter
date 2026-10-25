@@ -4,7 +4,8 @@ import CryptoKit
 struct LogEntry: Identifiable, Equatable {
     let id = UUID()
     let date: Date
-    let hebrew: String
+    /// Pointed Hebrew (nikud) once the diacritizer has run; the raw transcript until then.
+    var hebrew: String
     var english: String
     let forced: Bool
     var complete: Bool { !forced }
