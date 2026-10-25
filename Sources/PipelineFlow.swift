@@ -5,14 +5,14 @@ extension Pipeline {
 
     // MARK: - Recognition wiring
 
-    func wireRecognizer() {
-        recognizer.onPartial = { [weak self] text in
+    func wireSTT() {
+        stt.onPartial = { [weak self] text in
             Task { @MainActor in self?.handlePartial(text) }
         }
-        recognizer.onFinal = { [weak self] text in
-            Task { @MainActor in self?.handleFinal(text) }
+        stt.onEndpoint = { [weak self] text in
+            Task { @MainActor in self?.handleEndpoint(text) }
         }
-        recognizer.onError = { [weak self] message in
+        stt.onError = { [weak self] message in
             Task { @MainActor in self?.lastError = message }
         }
     }
@@ -28,17 +28,19 @@ extension Pipeline {
         evaluate(accumulated, isFinal: false)
     }
 
-    func handleFinal(_ text: String) {
+    /// The recogniser detected an endpoint: the utterance is over, so this is the moment the
+    /// gate is allowed to treat the text as final.
+    func handleEndpoint(_ text: String) {
         let stripped = Self.removePrefix(text, prefix: lastEmitted)
         accumulated = TextUtil.mergeOverlap(accumulated, stripped)
         hebrewLive = accumulated.isEmpty ? lastEmitted : accumulated
-        Self.trace("STT final: \(text)")
+        Self.trace("STT endpoint: \(text)")
         evaluate(accumulated, isFinal: true)
     }
 
     func evaluate(_ text: String, isFinal: Bool) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let silence = recognizer.silenceDuration
+        let silence = stt.silenceDuration
         let age = pendingSince.map { Date().timeIntervalSince($0) } ?? 0
         let outcome = gate.evaluate(text, trailingSilence: silence, isSTTFinal: isFinal, pendingAge: age)
         lastGateReason = outcome.reason
@@ -140,20 +142,20 @@ extension Pipeline {
 
     func tick() {
         guard running else { return }
-        recognizer.restartIfNeeded()
-        if !accumulated.isEmpty && recognizer.silenceDuration >= gate.mode.silenceToEmit {
+        stt.restartIfNeeded(maxSeconds: 50)
+        if !accumulated.isEmpty && stt.silenceDuration >= gate.mode.silenceToEmit {
             evaluate(accumulated, isFinal: false)
         }
-        if let speech = pendingSpeech, !recognizer.isSpeechActive, !speaker.isSpeaking, queue.isEmpty {
+        if let speech = pendingSpeech, !stt.isSpeechActive, !speaker.isSpeaking, queue.isEmpty {
             pendingSpeech = nil
             status = .speaking
             // Mute the mic while talking: the speaker's own English must never be
             // transcribed and re-translated (feedback loop), and the TTS must not be cut off.
-            recognizer.muted = true
+            stt.muted = true
             speaker.onFinish = { [weak self] in
                 Task { @MainActor in
                     guard let self else { return }
-                    self.recognizer.muted = false
+                    self.stt.muted = false
                     self.accumulated = ""
                     self.pendingSince = nil
                     self.status = self.running ? .listening : .idle
@@ -169,8 +171,8 @@ extension Pipeline {
         // only well after the request. Loading a voice can take a moment, and un-muting too
         // early would feed our own English straight back into the recognizer.
         let speakAge = Date().timeIntervalSince(lastSpeakRequestAt)
-        if recognizer.muted && !speaker.isSpeaking && pendingSpeech == nil && status != .speaking && speakAge > 2.0 {
-            recognizer.muted = false
+        if stt.muted && !speaker.isSpeaking && pendingSpeech == nil && status != .speaking && speakAge > 2.0 {
+            stt.muted = false
         }
         if !speaker.isSpeaking && status == .speaking && speakAge > 0.5 { status = running ? .listening : .idle }
     }

@@ -137,6 +137,68 @@ enum WAV {
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Reads a WAV file (16-bit PCM or 32-bit float) into mono float samples.
+    /// Used by the file audio input so a recording can drive the whole pipeline offline.
+    static func readMono(url: URL) throws -> (samples: [Float], sampleRate: Double) {
+        let data = try Data(contentsOf: url)
+        guard data.count > 44 else { throw NSError(domain: "heen.wav", code: 1) }
+
+        func u16(_ offset: Int) -> Int {
+            Int(data.subdata(in: offset..<(offset + 2)).withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }.littleEndian)
+        }
+        func u32(_ offset: Int) -> Int {
+            Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }.littleEndian)
+        }
+
+        var offset = 12
+        var sampleRate: Double = 16_000
+        var channels = 1
+        var bits = 16
+        var format = 1
+        var payload: Data?
+        while offset + 8 <= data.count {
+            let id = String(decoding: data[offset..<(offset + 4)], as: UTF8.self)
+            let size = u32(offset + 4)
+            let body = offset + 8
+            if id == "fmt " {
+                format = u16(body)
+                channels = max(1, u16(body + 2))
+                sampleRate = Double(u32(body + 4))
+                bits = u16(body + 14)
+            } else if id == "data" {
+                payload = data.subdata(in: body..<min(body + size, data.count))
+            }
+            offset = body + size + (size % 2)
+        }
+        guard let payload else { throw NSError(domain: "heen.wav", code: 2) }
+
+        var samples: [Float] = []
+        samples.reserveCapacity(payload.count / 2)
+        payload.withUnsafeBytes { raw in
+            if bits == 16 {
+                let values = raw.bindMemory(to: Int16.self)
+                var index = 0
+                while index + channels <= values.count {
+                    var acc: Float = 0
+                    for channel in 0..<channels { acc += Float(values[index + channel]) / 32_768 }
+                    samples.append(acc / Float(channels))
+                    index += channels
+                }
+            } else if bits == 32, format == 3 {
+                let values = raw.bindMemory(to: Float.self)
+                var index = 0
+                while index + channels <= values.count {
+                    var acc: Float = 0
+                    for channel in 0..<channels { acc += values[index + channel] }
+                    samples.append(acc / Float(channels))
+                    index += channels
+                }
+            }
+        }
+        guard !samples.isEmpty else { throw NSError(domain: "heen.wav", code: 3) }
+        return (samples, sampleRate)
+    }
+
     static func rms(_ samples: [Float]) -> Float {
         guard !samples.isEmpty else { return 0 }
         var acc: Float = 0

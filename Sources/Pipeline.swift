@@ -50,7 +50,9 @@ final class Pipeline: ObservableObject {
     /// Last partial text written to the on-device trace (de-duplication).
     static var lastTracedPartial = ""
 
-    let recognizer = HebrewRecognizer()
+    /// Streaming Hebrew ASR (sherpa-onnx zipformer2-66m, offline). Injectable so the simulator
+    /// tests can drive the entire pipeline with a scripted recogniser instead of a microphone.
+    var stt: any StreamingSTT
     let speaker = Speaker()
     var gate = HebrewCompletenessGate()
     var accumulated = ""
@@ -87,11 +89,15 @@ final class Pipeline: ObservableObject {
 
     // MARK: - Setup
 
+    init(stt: (any StreamingSTT)? = nil) {
+        self.stt = stt ?? SherpaStreamingSTT()
+    }
+
     func prepare() async {
         Self.resetTrace()
         Self.trace("=== launch build \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") on \(UIDevice.current.name), iOS \(UIDevice.current.systemVersion)")
         modelsState = .loading
-        sttStatus = "he-IL available: \(recognizer.isAvailable), on-device: \(recognizer.supportsOnDevice)"
+        sttStatus = stt.statusText
         var appleStatus: String?
         if #available(iOS 18.0, *) {
             let report = await AppleTranslationAvailability.check()
@@ -171,33 +177,26 @@ final class Pipeline: ObservableObject {
 
     func start() {
         guard !running else { return }
-        HebrewRecognizer.requestPermission { [weak self] speechOK in
+        AVAudioApplication.requestRecordPermission { [weak self] micOK in
             guard let self else { return }
-            guard speechOK else {
-                self.lastError = "Speech recognition permission denied"
+            guard micOK else {
+                self.lastError = "Microphone permission denied"
                 self.status = .error
                 return
             }
-            AVAudioApplication.requestRecordPermission { micOK in
-                guard micOK else {
-                    self.lastError = "Microphone permission denied"
+            Task { @MainActor in
+                do {
+                    try self.stt.start()
+                    self.wireSTT()
+                    self.running = true
+                    self.status = .listening
+                    UIApplication.shared.isIdleTimerDisabled = true  // keep the screen on while live
+                    self.startTimer()
+                    Self.trace("START listening — \(self.stt.statusText)")
+                } catch {
+                    self.lastError = error.localizedDescription
                     self.status = .error
-                    return
-                }
-                Task { @MainActor in
-                    do {
-                        try self.recognizer.start()
-                        self.wireRecognizer()
-                        self.running = true
-                        self.status = .listening
-                        UIApplication.shared.isIdleTimerDisabled = true  // keep the screen on while live
-                        self.startTimer()
-                        Self.trace("START listening (he-IL, on-device \(self.recognizer.supportsOnDevice))")
-                    } catch {
-                        self.lastError = error.localizedDescription
-                        self.status = .error
-                        Self.trace("START failed: \(error.localizedDescription)")
-                    }
+                    Self.trace("START failed: \(error.localizedDescription)")
                 }
             }
         }
@@ -206,8 +205,8 @@ final class Pipeline: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
-        recognizer.stop()
-        recognizer.muted = false
+        stt.stop()
+        stt.muted = false
         speaker.stop()
         running = false
         UIApplication.shared.isIdleTimerDisabled = false

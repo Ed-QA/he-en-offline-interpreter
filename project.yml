@@ -11,6 +11,9 @@ packages:
   swift-transformers:
     url: https://github.com/huggingface/swift-transformers
     from: 1.3.0
+  sherpa-onnx:
+    url: https://github.com/k2-fsa/sherpa-onnx
+    exactVersion: 2.0.0
 settings:
   base:
     SWIFT_VERSION: "5.9"
@@ -43,6 +46,8 @@ targets:
         product: onnxruntime
       - package: swift-transformers
         product: Tokenizers
+      - package: sherpa-onnx
+        product: sherpa-onnx-shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.shedw.he2en

@@ -11,18 +11,34 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Cache prepared ONNX model
+      - name: Cache prepared models (translation + STT)
         id: model-cache
         uses: actions/cache@v4
         with:
           path: Model
-          key: onnx-model-${{ hashFiles('Tools/prepare_model.py') }}
+          key: models-${{ hashFiles('Tools/prepare_model.py', 'Tools/prepare_stt.py') }}
       - name: Prepare offline translation model (only on cache miss)
         if: steps.model-cache.outputs.cache-hit != 'true'
         run: |
           python -m pip install --quiet --upgrade pip
           python -m pip install --quiet "optimum[exporters]==1.24.0" "transformers==4.46.3" "torch==2.5.1" "onnx==1.17.0" "onnxruntime==1.20.1" "sentencepiece==0.2.0" "sacremoses==0.1.1"
           python Tools/prepare_model.py
+      - name: Fetch offline STT model (only on cache miss)
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install --quiet huggingface_hub
+          python Tools/prepare_stt.py
+      - name: Generate a Hebrew audio fixture with the macOS Hebrew voice
+        run: |
+          mkdir -p Model
+          if say -v '?' | grep -qi carmit; then
+            say -v Carmit --file-format=WAVE --data-format=LEI16@16000 \
+              -o Model/test-hebrew.wav \
+              "שלום, מה שלומך היום? אני רוצה לקנות לחם מחר בבוקר."
+            ls -l Model/test-hebrew.wav
+          else
+            echo "no Hebrew voice on this runner — the STT audio test will be skipped"
+          fi
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project
