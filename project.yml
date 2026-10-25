@@ -17,6 +17,19 @@ settings:
     CODE_SIGNING_ALLOWED: NO
     CODE_SIGNING_REQUIRED: NO
     CODE_SIGN_IDENTITY: ""
+    ENABLE_TESTABILITY: YES
+schemes:
+  HEENInterpreter:
+    build:
+      targets:
+        HEENInterpreter: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - HEENInterpreterTests
+        - HEENInterpreterUITests
 targets:
   HEENInterpreter:
     type: application
@@ -35,8 +48,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.shedw.he2en
         PRODUCT_NAME: HEENInterpreter
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "0.3"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "0.4"
+        CURRENT_PROJECT_VERSION: "4"
         INFOPLIST_KEY_CFBundleDisplayName: HE-EN Offline
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Microphone hears Hebrew speech; recognition is on-device only."
@@ -47,3 +60,28 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
         SWIFT_STRICT_CONCURRENCY: minimal
         GENERATE_INFOPLIST_FILE: YES
+  HEENInterpreterTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+    dependencies:
+      - target: HEENInterpreter
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shedw.he2en.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_STRICT_CONCURRENCY: minimal
+  HEENInterpreterUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: HEENInterpreter
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shedw.he2en.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: HEENInterpreter
+        SWIFT_STRICT_CONCURRENCY: minimal

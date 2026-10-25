@@ -1,0 +1,54 @@
+name: Simulator tests (no device)
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  sim-test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cache prepared ONNX model
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: Model
+          key: onnx-model-${{ hashFiles('Tools/prepare_model.py') }}
+      - name: Prepare offline translation model (only on cache miss)
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet "optimum[exporters]==1.24.0" "transformers==4.46.3" "torch==2.5.1" "onnx==1.17.0" "onnxruntime==1.20.1" "sentencepiece==0.2.0" "sacremoses==0.1.1"
+          python Tools/prepare_model.py
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          echo "--- available iPhone simulators ---"
+          xcrun simctl list devices available | grep -E "iPhone" | head -20
+          UDID=$(xcrun simctl list devices available | grep -E "iPhone" | head -1 | sed -E 's/.*\(([-0-9A-F]{36})\).*/\1/')
+          echo "Using simulator $UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+      - name: Run simulator tests (unit + UI)
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project HEENInterpreter.xcodeproj \
+            -scheme HEENInterpreter \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | tail -n 120
+      - name: Upload test results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-test-results
+          path: TestResults.xcresult
+          if-no-files-found: warn

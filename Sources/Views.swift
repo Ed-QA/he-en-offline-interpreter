@@ -39,7 +39,8 @@ struct ContentView: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.red.opacity(0.85)))
     }
 
-    /// One big status light. Green = ready and working. Nothing else to read.
+    /// One big status light. Green = ready and working. No prose on the main screen:
+    /// the only text allowed here is the status word itself and a real problem message.
     private var header: some View {
         HStack(spacing: 12) {
             ZStack {
@@ -47,20 +48,28 @@ struct ContentView: View {
                 Circle().fill(ledColor).frame(width: 26, height: 26)
                     .shadow(color: ledColor.opacity(0.9), radius: 8)
             }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(ledTitle)
-                    .font(.title3.bold())
-                    .foregroundStyle(ledColor)
-                Text(ledSubtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
+            Text(ledTitle)
+                .font(Theme.statusFont)
+                .foregroundStyle(ledColor)
+                .accessibilityIdentifier("statusTitle")
             Spacer()
-            Text(p.running ? "ON AIR" : "OFF")
-                .font(.caption.bold())
-                .foregroundStyle(p.running ? .green : .secondary)
+            if let problem = ledProblem {
+                Text(problem)
+                    .font(Theme.captionFont)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(3)
+                    .accessibilityIdentifier("statusProblem")
+            }
         }
+    }
+
+    /// Only ever returns text when something is actually wrong — everything else lives in
+    /// Settings, where the model proof and diagnostics belong.
+    private var ledProblem: String? {
+        if let err = p.lastError { return err }
+        if case .failed(let why) = p.modelsState { return why }
+        return nil
     }
 
     private var ledColor: Color {
@@ -85,22 +94,11 @@ struct ContentView: View {
         }
     }
 
-    private var ledSubtitle: String {
-        switch p.modelsState {
-        case .loading: return "loading offline model…"
-        case .active(let proof): return "models active ✓  (\(proof))"
-        case .failed(let why): return "model problem: \(why)"
-        }
-    }
-
     private var hebrewPanel: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("עברית — מה שנאמר")
-                .font(.caption)
-                .foregroundStyle(.secondary)
             ScrollView {
                 Text(p.hebrewLive.isEmpty ? "…" : p.hebrewLive)
-                    .font(.body)
+                    .font(Theme.panelFont)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .textSelection(.enabled)
             }
@@ -109,16 +107,14 @@ struct ContentView: View {
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemGroupedBackground)))
         .environment(\.layoutDirection, .rightToLeft)
+        .accessibilityIdentifier("hebrewPanel")
     }
 
     private var englishPanel: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("English — translation")
-                .font(.caption)
-                .foregroundStyle(.secondary)
             ScrollView {
                 Text(p.englishText.isEmpty ? "…" : p.englishText)
-                    .font(.title3)
+                    .font(Theme.panelFont)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
@@ -126,6 +122,7 @@ struct ContentView: View {
         .padding(8)
         .frame(maxHeight: .infinity)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemGroupedBackground)))
+        .accessibilityIdentifier("englishPanel")
     }
 
     private var controls: some View {
@@ -139,28 +136,27 @@ struct ContentView: View {
                     .background(Circle().fill(p.running ? Color.red : Color.accentColor))
                     .foregroundStyle(.white)
             }
+            .accessibilityIdentifier("mainToggle")
+            .accessibilityLabel(p.running ? "Stop listening" : "Start listening")
 
-            VStack(spacing: 10) {
-                HStack(spacing: 10) {
-                    smallButton("arrow.uturn.left", "Repeat") { p.repeatLast() }
-                    smallButton("list.bullet.rectangle", "Full log") { showLog = true }
-                }
-                HStack(spacing: 10) {
-                    smallButton("gearshape", "Settings") { showSettings = true }
-                }
+            HStack(spacing: 10) {
+                iconButton("arrow.uturn.left", "Repeat last sentence") { p.repeatLast() }
+                iconButton("list.bullet.rectangle", "Log") { showLog = true }
+                iconButton("gearshape", "Settings") { showSettings = true }
             }
             Spacer()
         }
     }
 
-    private func smallButton(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
+    /// Icon-only control: no static prose on the main screen, but still reachable for VoiceOver.
+    private func iconButton(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: symbol)
-                .font(.caption.bold())
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color(.tertiarySystemGroupedBackground)))
+            Image(systemName: symbol)
+                .font(.system(size: 20, weight: .semibold))
+                .frame(width: 46, height: 46)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color(.tertiarySystemGroupedBackground)))
         }
+        .accessibilityLabel(label)
     }
 
     private func color(for status: Pipeline.Status) -> Color {
@@ -172,6 +168,14 @@ struct ContentView: View {
         case .error: return .red
         }
     }
+}
+
+/// Single source of truth for typography so the screens cannot drift apart again.
+enum Theme {
+    static let statusFont = Font.title2.bold()
+    static let panelFont = Font.body
+    static let captionFont = Font.caption
+    static let corner: CGFloat = 12
 }
 
 /// Anchors an Apple TranslationSession to a live view (iOS 18+).

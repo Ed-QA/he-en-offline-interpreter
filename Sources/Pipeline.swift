@@ -67,6 +67,13 @@ final class Pipeline: ObservableObject {
     var queue: [String] = []
     var translating = false
     var pendingSpeech: String?
+    /// Hebrew words already queued or spoken for the current utterance — the anti-repeat guard
+    /// (item 5: TTS must never re-speak words it has already said).
+    var spokenHebrew = ""
+    /// Last English sentence handed to the TTS: an identical request is never queued twice.
+    var lastSpokenEnglish = ""
+    /// When the sentence currently waiting for TTS was emitted — used to log emit→speak latency.
+    var pendingSpeechAt: Date?
 
     /// Used by the SwiftUI anchor view (iOS 18+). Stored type-erased because Swift
     /// forbids `@available` on stored properties; the typed accessor below is gated.
@@ -119,8 +126,22 @@ final class Pipeline: ObservableObject {
             engineStatus = "Apple on-device translation — \(appleStatus ?? "ready")"
             modelsState = .active("Apple on-device translation")
         }
+        // Warm the translation graph so the first real sentence does not pay for session
+        // allocation. Logged with a millisecond figure so latency is visible in live.log.
+        if let engine {
+            let t0 = Date()
+            let warm = (try? await engine.translate("שלום, מה שלומך?")) ?? ""
+            let ms = Int(Date().timeIntervalSince(t0) * 1000)
+            Self.trace("warmup translate \(ms) ms → \(TextUtil.sanitizeTranslation(warm))")
+        }
         // v0.3: launch == live. The interpreter starts listening by itself so the
         // device never needs a button tap to begin working.
+        // UI-test hook: the simulator has no usable microphone and a permission alert would
+        // block automated screenshots, so `-HEENUITest` keeps the app prepared but idle.
+        if ProcessInfo.processInfo.arguments.contains("-HEENUITest") {
+            Self.trace("auto-start skipped (-HEENUITest)")
+            return
+        }
         Self.trace("auto-start after prepare")
         start()
     }
@@ -194,6 +215,9 @@ final class Pipeline: ObservableObject {
         hebrewLive = ""
         accumulated = ""
         pendingSince = nil
+        spokenHebrew = ""
+        pendingSpeech = nil
+        pendingSpeechAt = nil
         Self.trace("STOP listening")
     }
 

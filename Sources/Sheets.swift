@@ -6,28 +6,43 @@ struct LogSheet: View {
     @EnvironmentObject var p: Pipeline
     @Environment(\.dismiss) private var dismiss
     @State private var logURL: URL?
+    @State private var trace = ""
 
     var body: some View {
         NavigationStack {
-            List(p.log) { e in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(DateFormatter.logStamp.string(from: e.date))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(e.hebrew)
-                        .font(.body)
-                        .environment(\.layoutDirection, .rightToLeft)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    Text(e.english.isEmpty ? "…" : e.english)
-                        .font(.body.bold())
-                    if e.forced {
-                        Text("incomplete chunk (forced by latency cap)")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
+            Group {
+                if p.log.isEmpty {
+                    // Item 4: this screen must never look empty. Before the first sentence is
+                    // emitted it shows the live on-device trace instead of a blank list.
+                    ScrollView {
+                        Text(trace.isEmpty ? "…" : trace)
+                            .font(.system(.footnote, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding()
+                    }
+                } else {
+                    List(p.log) { e in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(DateFormatter.logStamp.string(from: e.date))
+                                .font(Theme.captionFont)
+                                .foregroundStyle(.secondary)
+                            Text(e.hebrew)
+                                .font(Theme.panelFont)
+                                .environment(\.layoutDirection, .rightToLeft)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                            Text(e.english.isEmpty ? "…" : e.english)
+                                .font(Theme.panelFont.bold())
+                            if e.forced {
+                                Text("incomplete chunk (forced by latency cap)")
+                                    .font(Theme.captionFont)
+                                    .foregroundStyle(.orange)
+                            }
+                        }
                     }
                 }
             }
-            .navigationTitle("Full log (\(p.log.count))")
+            .navigationTitle("Log (\(p.log.count))")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { dismiss() } label: { Label("Close", systemImage: "xmark") }
@@ -38,7 +53,10 @@ struct LogSheet: View {
                     }
                 }
             }
-            .onAppear { logURL = p.writeLogFile() }
+            .onAppear {
+                trace = Pipeline.traceTail()
+                logURL = p.writeLogFile()
+            }
         }
     }
 }

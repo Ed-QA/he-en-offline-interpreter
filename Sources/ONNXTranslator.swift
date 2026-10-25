@@ -128,6 +128,13 @@ final class ONNXTranslationEngine: TranslationEngine {
         }
     }
 
+    /// Sanitises and (optionally) reports latency for one translation. Never returns
+    /// control tokens such as `<pad>` / `<unk>` — they must not reach the screen or TTS.
+    func translateSanitized(_ text: String) async throws -> String {
+        let raw = try await translate(text)
+        return TextUtil.sanitizeTranslation(raw)
+    }
+
     /// Encoder runs once, then greedy token-by-token decoding with the non-cached decoder.
     private func runGreedy(_ text: String) throws -> String {
         var source = tokenizer.encode(text: text)

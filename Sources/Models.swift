@@ -65,6 +65,19 @@ enum TextUtil {
         s.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).map(String.init)
     }
 
+    /// Drops everything in `text` that is already covered by `prefix` (word-aligned).
+    /// Used to keep the TTS from ever re-speaking words that were already said.
+    static func removePrefix(_ text: String, prefix: String) -> String {
+        guard !prefix.isEmpty else { return text }
+        let p = tokenize(prefix)
+        let t = tokenize(text)
+        guard t.count >= p.count else { return text }
+        if Array(t.prefix(p.count)) == p {
+            return t.dropFirst(p.count).joined(separator: " ")
+        }
+        return text
+    }
+
     static func stripEdges(_ w: String) -> String {
         let junk = CharacterSet(charactersIn: ".,!?:;\"'()[]{}\u{05BE}\u{2013}\u{2014}\u{2026}")
         return w.trimmingCharacters(in: junk)
@@ -79,6 +92,26 @@ enum TextUtil {
         let doubles = s.filter { $0 == "\"" }.count
         let singles = s.filter { $0 == "'" }.count
         return doubles % 2 == 1 || singles % 2 == 1
+    }
+
+    /// Removes control/placeholder tokens that ONNX MT exports leak into decoded text
+    /// (`<pad>`, `</s>`, `<s>`, `<unk>`, `<0xAB>`, …) and normalises spacing.
+    /// Anything the model cannot say in plain English must never reach the screen or the TTS.
+    static func sanitizeTranslation(_ s: String) -> String {
+        var out = s
+        if out.contains("<") {
+            out = out.replacingOccurrences(of: "<[^<>]{0,48}>", with: " ", options: .regularExpression)
+            out = out.replacingOccurrences(of: "<", with: " ")
+        }
+        if out.contains(">") { out = out.replacingOccurrences(of: ">", with: " ") }
+        out = out.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        out = out.replacingOccurrences(of: "\\s+([,.;:!?])", with: "$1", options: .regularExpression)
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// True when the text still contains something that is not speakable English.
+    static func hasModelArtifacts(_ s: String) -> Bool {
+        s.contains("<") || s.contains(">") || s.contains("▁")
     }
 }
 

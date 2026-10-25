@@ -24,11 +24,32 @@ extension Pipeline {
         }
     }
 
+    /// Starts a new session marker instead of deleting the file: a pulled log must never
+    /// look "empty" after a restart, and previous evidence has to survive.
     nonisolated static func resetTrace() {
         traceQueue.async {
             guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
-            try? FileManager.default.removeItem(at: dir.appendingPathComponent("live.log"))
+            let url = dir.appendingPathComponent("live.log")
+            let stamp = DateFormatter.logStamp.string(from: Date())
+            let line = "[\\(stamp)] ===== new session =====\n"
+            if let handle = try? FileHandle(forWritingTo: url) {
+                handle.seekToEndOfFile()
+                handle.write(line.data(using: .utf8) ?? Data())
+                try? handle.close()
+            } else {
+                try? line.write(to: url, atomically: true, encoding: .utf8)
+            }
         }
+    }
+
+    /// Last lines of the on-device trace file. The log screen falls back to this, so it is
+    /// never blank just because no sentence has been emitted yet.
+    nonisolated static func traceTail(maxLines: Int = 200) -> String {
+        guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return "" }
+        let url = dir.appendingPathComponent("live.log")
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return "" }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        return lines.suffix(maxLines).joined(separator: "\n")
     }
 
     /// Partials are UI-only. They are deliberately NOT written to the trace file,

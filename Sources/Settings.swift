@@ -15,6 +15,9 @@ struct SettingsSheet: View {
                 Section("Engine") {
                     Text(p.engineStatus).font(.footnote)
                     Text("STT: \(p.sttStatus)").font(.footnote)
+                    if case .active(let proof) = p.modelsState {
+                        Text("Model self-test: \(proof)").font(.footnote)
+                    }
                     Button("Re-check availability") { Task { await p.prepare() } }
                 }
                 Section("Voice") {

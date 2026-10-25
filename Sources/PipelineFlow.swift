@@ -44,17 +44,20 @@ extension Pipeline {
         lastGateReason = outcome.reason
         if outcome.emit {
             // Anti-spam: never emit twice in the same breath, and never for a one-word stub.
-            if !isFinal, Date().timeIntervalSince(lastEmitAt) < 0.9 { return }
+            if !isFinal, Date().timeIntervalSince(lastEmitAt) < 0.35 { return }
             if TextUtil.tokenize(text).count < 2 { return }
-            emit(text, forced: outcome.forced)
+            emit(text, forced: outcome.forced, isFinal: isFinal)
         } else if pendingSince == nil {
             pendingSince = Date()
         }
     }
 
-    func emit(_ text: String, forced: Bool) {
+    func emit(_ text: String, forced: Bool, isFinal: Bool = false) {
         let sentence = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sentence.isEmpty else { return }
+        // Item 5 (critical): never queue a word twice. Everything already queued or spoken for
+        // this utterance is stripped, so a growing forced emit only ever speaks the new tail.
+        let fresh = Self.removePrefix(sentence, prefix: spokenHebrew)
         lastEmitted = sentence
         lastEmitAt = Date()
         accumulated = ""
@@ -63,20 +66,19 @@ extension Pipeline {
         // nothing had been recognised at all.
         hebrewLive = sentence
         log.append(LogEntry(date: Date(), hebrew: sentence, english: "", forced: forced))
-        Self.trace("gate EMIT\(forced ? " (incomplete, forced)" : ""): \(sentence)")
-        queue.append(sentence)
+        if fresh.isEmpty {
+            Self.trace("gate EMIT\(forced ? " (incomplete, forced)" : ""): \(sentence) — already spoken, skipped")
+            return
+        }
+        spokenHebrew = sentence
+        if isFinal { spokenHebrew = "" }   // utterance boundary: the next sentence starts clean
+        Self.trace("gate EMIT\(forced ? " (incomplete, forced)" : ""): \(sentence) → new words: \(fresh)")
+        queue.append(fresh)
         processQueue()
     }
 
     static func removePrefix(_ text: String, prefix: String) -> String {
-        guard !prefix.isEmpty else { return text }
-        let p = TextUtil.tokenize(prefix)
-        let t = TextUtil.tokenize(text)
-        guard t.count >= p.count else { return text }
-        if Array(t.prefix(p.count)) == p {
-            return t.dropFirst(p.count).joined(separator: " ")
-        }
-        return text
+        TextUtil.removePrefix(text, prefix: prefix)
     }
 
     // MARK: - Translation queue
@@ -87,12 +89,13 @@ extension Pipeline {
         let sentence = queue.removeFirst()
         status = .translating
         Self.trace("translate IN: \(sentence)")
+        let t0 = Date()
         Task { @MainActor in
             var translated = ""
             if let engine {
                 do {
-                    translated = try await engine.translate(sentence)
-                    Self.trace("translate OUT: \(translated)")
+                    translated = TextUtil.sanitizeTranslation(try await engine.translate(sentence))
+                    Self.trace("translate OUT (\(Int(Date().timeIntervalSince(t0) * 1000)) ms): \(translated)")
                 } catch {
                     self.lastError = error.localizedDescription
                     Self.trace("translate ERROR: \(error.localizedDescription)")
@@ -100,13 +103,25 @@ extension Pipeline {
             } else {
                 self.lastError = "No offline translation engine available"
             }
+            // Item 6: control tokens (`<pad>`, `<unk>`, …) must never reach the screen or the TTS.
+            if TextUtil.hasModelArtifacts(translated) {
+                Self.trace("translate DROP (model artifacts): \(translated)")
+                translated = ""
+            }
             if !translated.isEmpty {
                 if !self.englishText.isEmpty { self.englishText += "\n" }
                 self.englishText += translated
                 if let idx = self.log.lastIndex(where: { $0.hebrew == sentence && $0.english.isEmpty }) {
                     self.log[idx].english = translated
                 }
-                self.pendingSpeech = translated
+                // Item 5: the same English sentence is never queued for TTS twice.
+                if translated != self.lastSpokenEnglish {
+                    self.lastSpokenEnglish = translated
+                    self.pendingSpeech = translated
+                    self.pendingSpeechAt = Date()
+                } else {
+                    Self.trace("speak SKIP (identical to previous sentence)")
+                }
             }
             self.translating = false
             if self.queue.isEmpty { self.status = self.running ? .listening : .idle }
@@ -145,7 +160,9 @@ extension Pipeline {
                 }
             }
             lastSpeakRequestAt = Date()
-            Self.trace("TTS speaks: \(speech)")
+            let latency = pendingSpeechAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
+            pendingSpeechAt = nil
+            Self.trace("TTS speaks (emit→speak \(latency) ms): \(speech)")
             speaker.speak(speech)
         }
         // Safety net: if the synthesizer never reported start/finish, un-mute anyway — but
