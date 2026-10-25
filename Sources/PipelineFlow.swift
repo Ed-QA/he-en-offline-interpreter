@@ -18,10 +18,13 @@ extension Pipeline {
     }
 
     func handlePartial(_ text: String) {
+        // Contract: transcripts are never pointed. Stripping at this boundary covers every STT
+        // engine (including the scripted test double), independent of the model's vocabulary.
+        let clean = TextUtil.stripNikud(text)
         // The recognizer re-sends the whole utterance on every partial. Once a sentence
         // has been emitted, its words must not be counted again — otherwise the same
         // sentence is re-translated and re-spoken a dozen times.
-        let stripped = Self.removePrefix(text, prefix: lastEmitted)
+        let stripped = Self.removePrefix(clean, prefix: lastEmitted)
         accumulated = TextUtil.mergeOverlap(accumulated, stripped)
         hebrewLive = accumulated.isEmpty ? lastEmitted : accumulated
         tracePartial(accumulated)
@@ -31,10 +34,11 @@ extension Pipeline {
     /// The recogniser detected an endpoint: the utterance is over, so this is the moment the
     /// gate is allowed to treat the text as final.
     func handleEndpoint(_ text: String) {
-        let stripped = Self.removePrefix(text, prefix: lastEmitted)
+        let clean = TextUtil.stripNikud(text)
+        let stripped = Self.removePrefix(clean, prefix: lastEmitted)
         accumulated = TextUtil.mergeOverlap(accumulated, stripped)
         hebrewLive = accumulated.isEmpty ? lastEmitted : accumulated
-        Self.trace("STT endpoint: \(text)")
+        Self.trace("STT endpoint: \(clean)")
         evaluate(accumulated, isFinal: true)
     }
 

@@ -29,6 +29,40 @@ final class GateAndTextTests: XCTestCase {
         XCTAssertFalse(TextUtil.hasModelArtifacts("Hello world"))
     }
 
+    // MARK: - STT contract: Hebrew transcripts are never pointed (no nikud)
+
+    func testStripNikudRemovesPointsAndCantillation() {
+        // "shalom" spelled with qamats + shin-dot + holam
+        XCTAssertEqual(TextUtil.stripNikud("ש\u{05B8}\u{05C1}לו\u{05B9}ם"), "שלום")
+        // the exact failure the model produces: a standalone dagesh token glued onto a letter
+        XCTAssertEqual(TextUtil.stripNikud("של\u{05BC}ום"), "שלום")
+        // mixed points, spaces and letters survive as words
+        XCTAssertEqual(TextUtil.stripNikud("ע\u{05B7}ל \u{05B0}ה\u{05E9}\u{05C1}\u{05B8}\u{05E2}\u{05B7}ר"), "על השער")
+        XCTAssertEqual(TextUtil.stripNikud("ש\u{05B8}לו\u{05B9}ם ע\u{05D5}\u{05B9}ל\u{05B8}ם"), "שלום עולם")
+    }
+
+    func testStripNikudLeavesCleanTextAlone() {
+        XCTAssertEqual(TextUtil.stripNikud("מה שלומך? 12"), "מה שלומך? 12")
+        XCTAssertEqual(TextUtil.stripNikud("Hello שלום"), "Hello שלום")
+        XCTAssertEqual(TextUtil.stripNikud(""), "")
+        // maqaf (U+05BE) is punctuation, not nikud — it must survive
+        XCTAssertEqual(TextUtil.stripNikud("בית\u{05BE}ספר"), "בית\u{05BE}ספר")
+    }
+
+    func testStripNikudIsIdempotent() {
+        let once = TextUtil.stripNikud("ש\u{05B8}לו\u{05B9}ם")
+        XCTAssertEqual(TextUtil.stripNikud(once), once)
+    }
+
+    func testGateSeesUnpointedWords() {
+        // The gate's word sets are unpointed, so pointed text must never reach it: a pointed
+        // "של" (dangling preposition) has to be held back exactly like the plain one.
+        let gate = HebrewCompletenessGate()
+        let outcome = gate.evaluate(TextUtil.stripNikud("אני רוצה לשתות עם\u{05B8}"),
+                                    trailingSilence: 1.0, isSTTFinal: false, pendingAge: 0.5)
+        XCTAssertFalse(outcome.emit)
+    }
+
     // MARK: - Item 5: the TTS must never speak the same words twice
 
     func testRemovePrefixStripsAlreadySpokenWords() {

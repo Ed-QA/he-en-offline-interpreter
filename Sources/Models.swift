@@ -94,6 +94,30 @@ enum TextUtil {
         return doubles % 2 == 1 || singles % 2 == 1
     }
 
+    /// Hebrew vowel points (nikud) and cantillation marks: U+0591–U+05BD, U+05BF,
+    /// U+05C1–U+05C2, U+05C4–U+05C5, U+05C7. These are combining marks, so dropping them
+    /// leaves the letters intact. U+05BE (maqaf) and U+05C0 (paseq) are punctuation, not
+    /// nikud, and must survive.
+    static func isHebrewPoint(_ u: Unicode.Scalar) -> Bool {
+        switch u.value {
+        case 0x0591...0x05BD, 0x05BF, 0x05C1...0x05C2, 0x05C4...0x05C5, 0x05C7: return true
+        default: return false
+        }
+    }
+
+    /// The STT contract: recogniser output is *never* pointed. The zipformer's vocabulary
+    /// carries three standalone point tokens (dagesh U+05BC, holam U+05B9, sin-dot U+05C2),
+    /// which the transducer glues onto arbitrary letters and produces garbage nikud
+    /// ("שלום" -> "שלּום"). Pointed text also breaks the sense gate (word lookups) and the MT
+    /// model, which was trained on unpointed Hebrew — so every transcript is stripped.
+    static func stripNikud(_ s: String) -> String {
+        guard s.unicodeScalars.contains(where: isHebrewPoint) else { return s }
+        var out = String.UnicodeScalarView()
+        out.reserveCapacity(s.unicodeScalars.count)
+        for u in s.unicodeScalars where !isHebrewPoint(u) { out.append(u) }
+        return String(out)
+    }
+
     /// Removes control/placeholder tokens that ONNX MT exports leak into decoded text
     /// (`<pad>`, `</s>`, `<s>`, `<unk>`, `<0xAB>`, …) and normalises spacing.
     /// Anything the model cannot say in plain English must never reach the screen or the TTS.

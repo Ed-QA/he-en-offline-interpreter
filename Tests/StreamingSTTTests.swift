@@ -45,5 +45,9 @@ final class StreamingSTTTests: XCTestCase {
         let letters = heard.filter { $0.unicodeScalars.first.map { $0.value >= 0x05D0 && $0.value <= 0x05EA } ?? false }
         XCTAssertGreaterThan(letters.count, 3,
                              "recognised text does not look like Hebrew: '\(heard)'")
+        // Hard contract, checked against the real model: no nikud may survive the boundary.
+        // The zipformer vocabulary contains dagesh/holam/sin-dot as standalone tokens, so this
+        // asserts that Sources/StreamingSTT.swift strips them before anyone sees the text.
+        XCTAssertEqual(TextUtil.stripNikud(heard), heard, "nikud leaked from the model: '\(heard)'")
     }
 }
