@@ -138,7 +138,7 @@ extension Pipeline {
             if !translated.isEmpty {
                 if !self.englishText.isEmpty { self.englishText += "\n" }
                 self.englishText += translated
-                if let idx = self.log.lastIndex(where: { $0.hebrew == sentence && $0.english.isEmpty }) {
+                if let idx = self.log.lastIndex(where: { $0.hebrew == pointed && $0.english.isEmpty }) {
                     self.log[idx].english = translated
                 }
                 // Item 5: the same English sentence is never queued for TTS twice.
