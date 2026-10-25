@@ -35,8 +35,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.shedw.he2en
         PRODUCT_NAME: HEENInterpreter
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "0.2"
-        CURRENT_PROJECT_VERSION: "2"
+        MARKETING_VERSION: "0.3"
+        CURRENT_PROJECT_VERSION: "3"
         INFOPLIST_KEY_CFBundleDisplayName: HE-EN Offline
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Microphone hears Hebrew speech; recognition is on-device only."

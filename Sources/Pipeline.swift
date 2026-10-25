@@ -119,6 +119,10 @@ final class Pipeline: ObservableObject {
             engineStatus = "Apple on-device translation — \(appleStatus ?? "ready")"
             modelsState = .active("Apple on-device translation")
         }
+        // v0.3: launch == live. The interpreter starts listening by itself so the
+        // device never needs a button tap to begin working.
+        Self.trace("auto-start after prepare")
+        start()
     }
 
     /// Runs one real Hebrew→English translation on the loaded model so the header can
@@ -165,6 +169,7 @@ final class Pipeline: ObservableObject {
                         self.wireRecognizer()
                         self.running = true
                         self.status = .listening
+                        UIApplication.shared.isIdleTimerDisabled = true  // keep the screen on while live
                         self.startTimer()
                         Self.trace("START listening (he-IL, on-device \(self.recognizer.supportsOnDevice))")
                     } catch {
@@ -184,6 +189,7 @@ final class Pipeline: ObservableObject {
         recognizer.muted = false
         speaker.stop()
         running = false
+        UIApplication.shared.isIdleTimerDisabled = false
         status = .idle
         hebrewLive = ""
         accumulated = ""
