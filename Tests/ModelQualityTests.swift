@@ -39,7 +39,9 @@ final class ModelQualityTests: XCTestCase {
         let pipeline = warmPipeline()
 
         let pointed = pipeline.diacritize(shalom)
-        XCTAssertGreaterThan(pointed.count, shalom.count,
+        // Compare *scalars*: a pointed letter is still one grapheme cluster, so `count` (characters)
+        // stays 4 for the pointed word — only the scalar count shows the added marks.
+        XCTAssertGreaterThan(pointed.unicodeScalars.count, shalom.unicodeScalars.count,
                              "the diacritizer returned the bare word: \(pointed)")
         XCTAssertTrue(pointed.unicodeScalars.contains { (0x05B0...0x05C7).contains($0.value) },
                       "no nikud mark in: \(pointed)")
