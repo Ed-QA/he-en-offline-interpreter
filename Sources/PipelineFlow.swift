@@ -18,13 +18,10 @@ extension Pipeline {
     }
 
     func handlePartial(_ text: String) {
-        // Contract: transcripts are never pointed. Stripping at this boundary covers every STT
-        // engine (including the scripted test double), independent of the model's vocabulary.
-        let clean = TextUtil.stripNikud(text)
         // The recognizer re-sends the whole utterance on every partial. Once a sentence
         // has been emitted, its words must not be counted again — otherwise the same
         // sentence is re-translated and re-spoken a dozen times.
-        let stripped = Self.removePrefix(clean, prefix: lastEmitted)
+        let stripped = Self.removePrefix(text, prefix: lastEmitted)
         accumulated = TextUtil.mergeOverlap(accumulated, stripped)
         hebrewLive = accumulated.isEmpty ? lastEmitted : accumulated
         tracePartial(accumulated)
@@ -34,11 +31,10 @@ extension Pipeline {
     /// The recogniser detected an endpoint: the utterance is over, so this is the moment the
     /// gate is allowed to treat the text as final.
     func handleEndpoint(_ text: String) {
-        let clean = TextUtil.stripNikud(text)
-        let stripped = Self.removePrefix(clean, prefix: lastEmitted)
+        let stripped = Self.removePrefix(text, prefix: lastEmitted)
         accumulated = TextUtil.mergeOverlap(accumulated, stripped)
         hebrewLive = accumulated.isEmpty ? lastEmitted : accumulated
-        Self.trace("STT endpoint: \(clean)")
+        Self.trace("STT endpoint: \(text)")
         evaluate(accumulated, isFinal: true)
     }
 
@@ -89,18 +85,43 @@ extension Pipeline {
 
     // MARK: - Translation queue
 
+    /// Runs the on-device diacritizer (phonikud, int8 ONNX), loading it on first use.
+    /// Falls back to the unpointed sentence when the model is missing or fails — live
+    /// translation must keep working either way.
+    func diacritize(_ text: String) -> String {
+        if nikud == nil, !nikudUnavailable {
+            do {
+                nikud = try NikudRestorer.load()
+                Self.trace("nikud model ready (\(NikudModel.modelFile))")
+            } catch {
+                nikudUnavailable = true
+                Self.trace("nikud model unavailable: \(error.localizedDescription)")
+            }
+        }
+        return nikud?.addDiacritics(text) ?? text
+    }
+
     func processQueue() {
         guard !translating, !queue.isEmpty else { return }
         translating = true
         let sentence = queue.removeFirst()
         status = .translating
-        Self.trace("translate IN: \(sentence)")
+        // Contract: the translator only ever sees *pointed* Hebrew. A bare Hebrew word has
+        // several readings, so the recognised sentence is diacritized first (nikud) and that
+        // pointed text — not the raw transcript — is what gets translated and shown.
+        let pointed = diacritize(sentence)
+        if pointed != sentence {
+            if let index = log.lastIndex(where: { $0.hebrew == sentence }) {
+                log[index].hebrew = pointed
+            }
+        }
+        Self.trace("translate IN: \(pointed)")
         let t0 = Date()
         Task { @MainActor in
             var translated = ""
             if let engine {
                 do {
-                    translated = TextUtil.sanitizeTranslation(try await engine.translate(sentence))
+                    translated = TextUtil.sanitizeTranslation(try await engine.translate(pointed))
                     Self.trace("translate OUT (\(Int(Date().timeIntervalSince(t0) * 1000)) ms): \(translated)")
                 } catch {
                     self.lastError = error.localizedDescription

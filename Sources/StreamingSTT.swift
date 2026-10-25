@@ -130,11 +130,7 @@ final class SherpaStreamingSTT: StreamingSTT {
         lock.lock()
         recognizer.acceptWaveform(samples: samples, sampleRate: Int(sampleRate))
         while recognizer.isReady() { recognizer.decode() }
-        // The model's vocabulary carries three standalone nikud tokens (dagesh U+05BC, holam
-        // U+05B9, sin-dot U+05C2); the transducer glues them onto arbitrary letters, so the raw
-        // text is garbage-pointed. Unpointed Hebrew is the app-wide contract — strip it here,
-        // at the model boundary, so every consumer (gate, translator, TTS, screen) is clean.
-        let text = TextUtil.stripNikud(recognizer.getResult().text)
+        let text = recognizer.getResult().text
         let endpoint = recognizer.isEndpoint()
         if endpoint { recognizer.reset() }
         if !text.isEmpty { lastVoiceTime = Date() }

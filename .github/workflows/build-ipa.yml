@@ -26,6 +26,11 @@ jobs:
           python -m pip install --quiet huggingface_hub
           python Tools/prepare_stt.py
           ls -lh Model/STT
+      - name: Fetch nikud diacritizer (phonikud int8) + Silero VAD
+        run: |
+          python -m pip install --quiet huggingface_hub
+          python Tools/prepare_nikud.py
+          ls -lh Model/Nikud Model/VAD
       - name: Tokenizer pre-flight (same Swift tokenizer code as the app)
         run: |
           cd Tools/TokenizerCheck

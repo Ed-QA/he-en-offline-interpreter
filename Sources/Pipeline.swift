@@ -66,6 +66,11 @@ final class Pipeline: ObservableObject {
     var pendingSince: Date?
     var timer: Timer?
     var engine: TranslationEngine?
+    /// On-device diacritizer (phonikud int8, `Sources/Nikud.swift`). Loaded lazily on the
+    /// first sentence; if it is unavailable the pipeline keeps translating the unpointed text
+    /// instead of failing.
+    var nikud: NikudRestorer?
+    var nikudUnavailable = false
     var queue: [String] = []
     var translating = false
     var pendingSpeech: String?
