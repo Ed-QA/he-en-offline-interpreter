@@ -1,5 +1,4 @@
 import Foundation
-import OnnxRuntimeBindings
 import Tokenizers
 
 /// Fully offline Hebrew → English translation using a bundled quantized OPUS-MT model

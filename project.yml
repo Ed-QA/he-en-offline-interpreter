@@ -5,9 +5,12 @@ options:
     iOS: "17.0"
   createIntermediateGroups: true
 packages:
-  onnxruntime:
-    url: https://github.com/microsoft/onnxruntime-swift-package-manager
-    from: 1.19.2
+  # ONNX Runtime comes from the same prebuilt package sherpa-onnx pins, so the app
+  # links exactly one onnxruntime.framework (two providers = "Multiple commands
+  # produce .../onnxruntime.framework"). Sources/ORT.swift talks to its C API.
+  onnxruntime-libs:
+    url: https://github.com/csukuangfj/onnxruntime-libs
+    exactVersion: 1.28.2
   swift-transformers:
     url: https://github.com/huggingface/swift-transformers
     from: 1.3.0
@@ -42,8 +45,8 @@ targets:
       - path: Model
         type: folder
     dependencies:
-      - package: onnxruntime
-        product: onnxruntime
+      - package: onnxruntime-libs
+        product: onnxruntime-ios-shared
       - package: swift-transformers
         product: Tokenizers
       - package: sherpa-onnx
@@ -53,8 +56,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.shedw.he2en
         PRODUCT_NAME: HEENInterpreter
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "0.4"
-        CURRENT_PROJECT_VERSION: "4"
+        MARKETING_VERSION: "0.4.1"
+        CURRENT_PROJECT_VERSION: "5"
         INFOPLIST_KEY_CFBundleDisplayName: HE-EN Offline
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Microphone hears Hebrew speech; recognition is on-device only."
