@@ -25,7 +25,6 @@ final class StreamingSTTTests: XCTestCase {
         }
 
         let stt = SherpaStreamingSTT(input: FileAudioInput(url: url))
-        let done = expectation(description: "endpoint recognised")
         var heard = ""
 
         stt.onPartial = { text in
@@ -33,11 +32,24 @@ final class StreamingSTTTests: XCTestCase {
         }
         stt.onEndpoint = { text in
             if text.count > heard.count { heard = text }
-            done.fulfill()
         }
 
         try stt.start()
-        wait(for: [done], timeout: 90)
+        // The fixture is replayed at real-time speed (100 ms chunks). A streaming transducer
+        // only raises an endpoint when it sees trailing silence and `say` writes none, so the
+        // transcript is collected until it stops growing instead of waiting for a signal that
+        // may never arrive. The run loop must be pumped, otherwise the timers never fire.
+        let deadline = Date().addingTimeInterval(60)
+        var previous = ""
+        var lastGrowth = Date()
+        while Date() < deadline {
+            if heard != previous {
+                previous = heard
+                lastGrowth = Date()
+            }
+            if !heard.isEmpty, Date().timeIntervalSince(lastGrowth) > 4 { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
         stt.stop()
 
         print("HEARD: \(heard)")
