@@ -112,7 +112,7 @@ enum TextUtil {
 
     /// True when the text still contains something that is not speakable English.
     static func hasModelArtifacts(_ s: String) -> Bool {
-        s.contains("<") || s.contains(">") || s.contains("â–")
+        s.contains("<") || s.contains(">") || s.contains("\u{2581}")
     }
 }
 
