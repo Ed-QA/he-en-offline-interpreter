@@ -74,18 +74,7 @@ jobs:
       - name: Print failing tests (best effort)
         if: failure()
         run: |
-          python3 - <<'PY' || echo "xcresult not readable"
-          import json, subprocess
-          out = subprocess.run(["xcrun", "xcresulttool", "get", "test-results", "tests", "--path", "TestResults.xcresult", "--format", "json"], capture_output=True, text=True)
-          data = json.loads(out.stdout or "{}")
-          def walk(node):
-              if node.get("result") in ("Failed", "Expected Failure"):
-                  print("FAILED:", node.get("nodeIdentifier"), "|", (node.get("description") or "")[:300])
-              for child in node.get("children", []):
-                  walk(child)
-          for node in data.get("testNodes", []):
-              walk(node)
-          PY
+          xcrun xcresulttool get test-results summary --path TestResults.xcresult 2>/dev/null | head -c 4000 || echo "xcresult not readable"
       - name: Upload test results and screenshots
         if: always()
         uses: actions/upload-artifact@v4
