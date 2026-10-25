@@ -37,7 +37,7 @@ enum NikudModel {
     }
 
     static func missingFiles() -> [String] {
-        guard let folder else { return [modelFile, tokenizerFile] }
+        guard let folder = folder() else { return [modelFile, tokenizerFile] }
         return [modelFile, tokenizerFile].filter {
             !FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path)
         }
