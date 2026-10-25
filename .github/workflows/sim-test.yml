@@ -58,6 +58,15 @@ jobs:
           UDID=$(xcrun simctl list devices available | grep -E "iPhone" | head -1 | sed -E 's/.*\(([-0-9A-F]{36})\).*/\1/')
           echo "Using simulator $UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+      - name: Boot the simulator and pre-grant the microphone
+        # Without this, the first launch raises the system mic alert (owned by springboard), and
+        # that alert then sits in front of every later screenshot — including the UI-test ones.
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl privacy "$UDID" grant microphone com.shedw.he2en || echo "microphone grant failed"
+          xcrun simctl privacy "$UDID" grant speech-recognition com.shedw.he2en || echo "speech grant failed"
       - name: Run simulator tests (unit + UI)
         run: |
           set -o pipefail
