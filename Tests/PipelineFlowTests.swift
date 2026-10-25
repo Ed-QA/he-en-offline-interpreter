@@ -21,7 +21,19 @@ final class PipelineFlowTests: XCTestCase {
         let pipeline = Pipeline(stt: stt)
         let translator = FakeTranslator()
         pipeline.engine = translator
+        // Load the diacritizer up front: otherwise the first processQueue spends the whole
+        // test window creating the 293 MB ONNX session (all of this runs on the main actor).
+        _ = pipeline.diacritize("warmup")
         return (pipeline, translator, stt)
+    }
+
+    /// Waits until `condition` is true or `seconds` elapse. The pipeline is main-actor bound,
+    /// so sleeping here also lets its timers and translation tasks run.
+    private func wait(_ seconds: TimeInterval, until condition: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline, !condition() {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
     }
 
     private func spin(_ seconds: TimeInterval) async {
@@ -44,7 +56,7 @@ final class PipelineFlowTests: XCTestCase {
         pipeline.running = true
         pipeline.startTimer()
 
-        await spin(1.2)
+        await wait(6.0) { !pipeline.englishText.isEmpty }
         pipeline.stop()
 
         let hebrew = pipeline.log.map(\.hebrew)
@@ -83,7 +95,7 @@ final class PipelineFlowTests: XCTestCase {
         pipeline.running = true
         pipeline.startTimer()
 
-        await spin(1.5)
+        await wait(6.0) { !translator.calls.isEmpty }
         pipeline.stop()
 
         XCTAssertGreaterThanOrEqual(translator.calls.count, 1,
