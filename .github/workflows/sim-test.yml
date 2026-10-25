@@ -73,8 +73,13 @@ jobs:
             2>&1 | tail -n 400
       - name: Switch the simulator to dark appearance and large text
         run: |
-          xcrun simctl ui "${{ steps.sim.outputs.udid }}" appearance dark
-          xcrun simctl ui "${{ steps.sim.outputs.udid }}" content_size accessibility-extra-large \
+          UDID="${{ steps.sim.outputs.udid }}"
+          # xcodebuild shuts the device down when the test run ends, and simctl ui refuses to
+          # touch a shutdown device ("Unable to lookup in current state: Shutdown").
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl ui "$UDID" appearance dark
+          xcrun simctl ui "$UDID" content_size accessibility-extra-large \
             || echo "content_size is not supported by this simctl build"
       - name: UI screenshots in dark mode and large text
         # Same UI tests, second result bundle: proves the screens survive dark mode and
@@ -120,4 +125,11 @@ jobs:
             TestResults.xcresult
             TestResultsDark.xcresult
             shots/out
+          if-no-files-found: warn
+      - name: Upload the screenshots on their own (small artifact, quick to fetch)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-screenshots
+          path: shots/out
           if-no-files-found: warn
