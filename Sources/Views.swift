@@ -27,7 +27,7 @@ struct ContentView: View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
             Text(message)
-                .font(.caption)
+                .font(Theme.captionFont)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button { p.lastError = nil } label: {
@@ -101,6 +101,7 @@ struct ContentView: View {
                     .font(Theme.panelFont)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .textSelection(.enabled)
+                    .accessibilityIdentifier("hebrewText")
             }
             .frame(height: 110)
         }
@@ -117,6 +118,7 @@ struct ContentView: View {
                     .font(Theme.panelFont)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
+                    .accessibilityIdentifier("englishText")
             }
         }
         .padding(8)

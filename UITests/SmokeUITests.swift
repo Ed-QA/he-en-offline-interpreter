@@ -16,8 +16,8 @@ final class SmokeUITests: XCTestCase {
         let status = app.staticTexts["statusTitle"]
         XCTAssertTrue(status.waitForExistence(timeout: 90), "the status light title never appeared")
 
-        XCTAssertTrue(app.otherElements["hebrewPanel"].exists || app.staticTexts["hebrewPanel"].exists,
-                      "the Hebrew panel is missing")
+        XCTAssertTrue(app.staticTexts["hebrewText"].exists, "the Hebrew panel is missing")
+        XCTAssertTrue(app.staticTexts["englishText"].exists, "the English panel is missing")
         XCTAssertTrue(app.buttons["mainToggle"].exists, "the start/stop control is missing")
 
         attachScreenshot(app, named: "main-screen")
