@@ -155,20 +155,23 @@ final class InvariantTests: XCTestCase {
             for mark in marks {
                 XCTAssertFalse(clean.contains(" " + mark), "space before \(mark) survived: \(clean)")
             }
-            // NOTE: no `hasModelArtifacts(clean)` assertion here on purpose — the SentencePiece
-            // underline (U+2581) is flagged by hasModelArtifacts but is NOT removed by
-            // sanitizeTranslation yet. See testSentencePieceUnderlineIsNotSanitizedYet.
+            XCTAssertFalse(TextUtil.hasModelArtifacts(clean),
+                           "an artifact survived sanitizeTranslation: \(clean)")
         }
     }
 
-    /// Characterisation test for a known gap: `hasModelArtifacts` treats the SentencePiece
-    /// underline (U+2581) as an artifact, but `sanitizeTranslation` passes it through. Flip this
-    /// test (assert the underline is gone) as soon as sanitize learns to strip it.
-    func testSentencePieceUnderlineIsNotSanitizedYet() {
-        let raw = "\u{2581}Hello"
-        XCTAssertTrue(TextUtil.hasModelArtifacts(raw), "U+2581 must count as an artifact")
-        XCTAssertEqual(TextUtil.sanitizeTranslation(raw), raw,
-                       "sanitizeTranslation now strips U+2581 — update this test and the pipeline note")
+    /// Regression for a real loss: `hasModelArtifacts` flags the SentencePiece underline
+    /// (U+2581), so the pipeline dropped the *whole* English sentence when one appeared - real
+    /// speech thrown away for a single stray mark. The mark is now stripped instead.
+    func testSentencePieceUnderlineIsStrippedNotDropped() {
+        XCTAssertEqual(TextUtil.sanitizeTranslation("\u{2581}Hello \u{2581}world"), "Hello world")
+        XCTAssertEqual(TextUtil.sanitizeTranslation("\u{2581}Hello"), "Hello")
+        XCTAssertFalse(TextUtil.hasModelArtifacts(TextUtil.sanitizeTranslation("\u{2581}Hello")),
+                       "a cleaned sentence must not still look like an artifact")
+        // The mark can appear inside a sentence and must not glue words together.
+        XCTAssertEqual(TextUtil.sanitizeTranslation("I \u{2581}want\u{2581}bread."), "I want bread.")
+        let once = TextUtil.sanitizeTranslation("\u{2581}I \u{2581}want \u{2581}bread.")
+        XCTAssertEqual(TextUtil.sanitizeTranslation(once), once, "sanitize is not idempotent")
     }
 
     // MARK: - Gate: deterministic, monotone, invariant under whitespace
