@@ -10,19 +10,30 @@ struct LogSheet: View {
 
     var body: some View {
         NavigationStack {
-            Group {
+            List {
+                Section {
+                    // Send logs lives in the list body, not the toolbar: a toolbar item reports a
+                    // 36 pt accessibility frame, below the 44 pt tap-target rule. A row is full height.
+                    if let logURL {
+                        ShareLink(item: logURL) {
+                            Label("Send logs", systemImage: "square.and.arrow.up")
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityIdentifier("shareLogs")
+                    }
+                }
                 if p.log.isEmpty {
                     // Item 4: this screen must never look empty. Before the first sentence is
                     // emitted it shows the live on-device trace instead of a blank list.
-                    ScrollView {
+                    Section {
                         Text(trace.isEmpty ? "…" : trace)
                             .font(.system(.footnote, design: .monospaced))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding()
                     }
                 } else {
-                    List(p.log) { e in
+                    ForEach(p.log) { e in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(DateFormatter.logStamp.string(from: e.date))
                                 .font(Theme.captionFont)
@@ -48,14 +59,9 @@ struct LogSheet: View {
                     Button { dismiss() } label: { Label("Close", systemImage: "xmark") }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if let logURL {
-                        // Native share sheet: Mail, Messages, AirDrop, Save to Files. The whole
-                        // report (device, model state, conversation, trace) travels as one file.
-                        ShareLink(item: logURL) { Label("Send logs", systemImage: "square.and.arrow.up") }
-                            .frame(minWidth: 44, minHeight: 44)
-                            .contentShape(Rectangle())
-                            .accessibilityIdentifier("shareLogs")
-                    }
+                    // Send logs is a list row now (see the first Section): toolbar items report a
+                    // 36 pt accessibility frame, under the 44 pt tap-target rule.
+                    EmptyView()
                 }
             }
             .onAppear {
