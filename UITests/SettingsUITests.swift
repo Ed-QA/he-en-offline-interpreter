@@ -48,6 +48,22 @@ final class SettingsUITests: XCTestCase {
         return app.staticTexts[text].exists || app.buttons[text].exists
     }
 
+    /// The settings form is lazy: a row below the fold does not exist until it is scrolled into
+    /// view, so every lookup has to scroll first (the "missing" rows were simply off screen).
+    /// Scans down first, then back up, so it works from wherever the form currently is.
+    private func scrollTo(_ app: XCUIApplication, _ id: String, maxSwipes: Int = 10) -> XCUIElement {
+        var element = app.descendants(matching: .any)[id].firstMatch
+        for _ in 0..<maxSwipes where !(element.exists && element.isHittable) {
+            app.swipeUp(velocity: .slow)
+            element = app.descendants(matching: .any)[id].firstMatch
+        }
+        for _ in 0..<maxSwipes where !(element.exists && element.isHittable) {
+            app.swipeDown(velocity: .slow)
+            element = app.descendants(matching: .any)[id].firstMatch
+        }
+        return element
+    }
+
     /// Everything a user actually needs: pick a voice, set the rate, hear it, choose how the app
     /// chunks speech, send the logs, reset. The developer tools stay reachable but separate.
     func testSettingsOffersTheNeededControls() {
@@ -56,11 +72,10 @@ final class SettingsUITests: XCTestCase {
 
         for id in ["voicePicker", "rateSlider", "testVoice", "gateModePicker",
                    "shareLogsSettings", "resetSettings"] {
-            XCTAssertTrue(app.descendants(matching: .any)[id].waitForExistence(timeout: 20),
-                          "\(id) is missing from Settings")
+            let element = scrollTo(app, id)
+            XCTAssertTrue(element.waitForExistence(timeout: 10), "\(id) is missing from Settings")
         }
-        XCTAssertTrue(app.staticTexts["Developer"].exists || app.buttons["Developer"].exists,
-                      "the developer section is missing")
+        XCTAssertTrue(scrollTo(app, "Developer").exists, "the developer section is missing")
     }
 
     func testHearThisVoiceIsSafeToTap() {
@@ -92,12 +107,15 @@ final class SettingsUITests: XCTestCase {
         // Second launch, without the reset flag: the choice must come back by itself.
         let relaunched = launch(resetPrefs: false)
         openSettings(relaunched)
-        let shown = relaunched.descendants(matching: .any)["gateModePicker"].firstMatch
+        let shown = scrollTo(relaunched, "gateModePicker")
         XCTAssertTrue(shown.waitForExistence(timeout: 20))
         XCTAssertTrue(wait(15) { shows(relaunched, shown, "Complete") },
                       "the chunking mode was not remembered across a relaunch (picker says \"\(shown.label)\")")
 
-        relaunched.descendants(matching: .any)["resetSettings"].firstMatch.tap()
+        let reset = scrollTo(relaunched, "resetSettings")
+        XCTAssertTrue(reset.waitForExistence(timeout: 10), "the reset row is missing")
+        reset.tap()
+        _ = scrollTo(relaunched, "gateModePicker")   // back up: the form is lazy
         XCTAssertTrue(wait(15) { shows(relaunched, shown, "Balanced") },
                       "reset did not restore the default chunking mode (picker says \"\(shown.label)\")")
     }
@@ -106,8 +124,8 @@ final class SettingsUITests: XCTestCase {
         let app = launch()
         openSettings(app)
 
-        let share = app.descendants(matching: .any)["shareLogsSettings"].firstMatch
-        XCTAssertTrue(share.waitForExistence(timeout: 20), "the send-logs row is missing")
+        let share = scrollTo(app, "shareLogsSettings")
+        XCTAssertTrue(share.waitForExistence(timeout: 10), "the send-logs row is missing")
         share.tap()
 
         let markers = ["ActivityListView", "Copy", "Save to Files", "Mail", "Messages", "Print", "Markup"]
