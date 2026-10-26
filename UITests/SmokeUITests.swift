@@ -8,6 +8,15 @@ final class SmokeUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// The controls are only meaningful once the models are loaded: a tap that lands while the app
+    /// is still STARTING can be swallowed, which is how `testSettingsAndLogOpen` flaked in CI.
+    private func waitForReady(_ app: XCUIApplication) {
+        let status = app.staticTexts["statusTitle"]
+        XCTAssertTrue(status.waitForExistence(timeout: 90), "the status light title never appeared")
+        let ready = expectation(for: NSPredicate(format: "label == %@", "READY"), evaluatedWith: status)
+        wait(for: [ready], timeout: 180)
+    }
+
     func testLaunchesToSingleStatusLight() {
         let app = XCUIApplication()
         app.launchArguments = ["-HEENUITest"]   // no mic start, no permission alert
@@ -28,7 +37,7 @@ final class SmokeUITests: XCTestCase {
         app.launchArguments = ["-HEENUITest"]
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["statusTitle"].waitForExistence(timeout: 90))
+        waitForReady(app)
 
         app.buttons["Settings"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 20), "settings did not open")
@@ -48,10 +57,7 @@ final class SmokeUITests: XCTestCase {
         app.launchArguments = ["-HEENUITest"]
         app.launch()
 
-        let status = app.staticTexts["statusTitle"]
-        XCTAssertTrue(status.waitForExistence(timeout: 90), "the status light title never appeared")
-        let ready = expectation(for: NSPredicate(format: "label == %@", "READY"), evaluatedWith: status)
-        wait(for: [ready], timeout: 180)
+        waitForReady(app)
 
         attachScreenshot(app, named: "01-main-ready")
 
