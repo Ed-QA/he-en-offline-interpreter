@@ -183,7 +183,12 @@ final class NikudRestorer {
                 }
                 var rest = Substring(piece)
                 while rest.count > maxChunkLength {
-                    let cut = rest.index(rest.startIndex, offsetBy: maxChunkLength)
+                    let limit = rest.index(rest.startIndex, offsetBy: maxChunkLength)
+                    // Cut on the last space inside the window: halving a word hands the
+                    // diacritizer two meaningless fragments. A 2000+ character run with no
+                    // space at all still has to be split at the hard limit.
+                    let boundary = rest[rest.startIndex..<limit].lastIndex(of: " ")
+                    let cut = boundary.map { rest.index(after: $0) } ?? limit
                     chunks.append(String(rest[rest.startIndex..<cut]))
                     rest = rest[cut...]
                 }
