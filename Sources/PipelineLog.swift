@@ -62,13 +62,34 @@ extension Pipeline {
 
     // MARK: - Log export
 
+    /// The report the "Send logs" control hands to the native share sheet: header, device and
+    /// model state, the conversation and the live trace. One self-contained text file, so it can
+    /// be mailed or dropped into a chat as-is.
     func logText() -> String {
         var out = "HE-EN OFFLINE INTERPRETER — FULL LOG\n\(Date())\n\n"
+        out += "== device ==\n"
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        out += "app: \(version) (\(build))\n"
+        out += "device: \(UIDevice.current.name), iOS \(UIDevice.current.systemVersion)\n"
+        out += "state: \(running ? "running" : "stopped"), \(status.rawValue), gate \(gate.mode.rawValue)\n"
+        out += "engine: \(engineStatus)\n"
+        switch modelsState {
+        case .loading: out += "models: loading\n"
+        case .active(let detail): out += "models: ready — \(detail)\n"
+        case .failed(let why): out += "models: FAILED — \(why)\n"
+        }
+        out += "speech: \(sttStatus)\n"
+        out += "nikud: \(nikud != nil ? "loaded" : (nikudUnavailable ? "unavailable" : "not loaded yet"))\n"
+        if let lastError { out += "last error: \(lastError)\n" }
+        out += "\n== conversation (\(log.count)) ==\n"
         for e in log {
             out += "[\(DateFormatter.logStamp.string(from: e.date))]\(e.forced ? " (incomplete)" : "")\n"
             out += "HE: \(e.hebrew)\n"
             out += "EN: \(e.english)\n\n"
         }
+        out += "== trace (Documents/live.log, last 400 lines) ==\n"
+        out += Self.traceTail(maxLines: 400)
         return out
     }
 
