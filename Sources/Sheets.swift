@@ -49,7 +49,10 @@ struct LogSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if let logURL {
-                        ShareLink(item: logURL) { Label("Send", systemImage: "square.and.arrow.up") }
+                        // Native share sheet: Mail, Messages, AirDrop, Save to Files. The whole
+                        // report (device, model state, conversation, trace) travels as one file.
+                        ShareLink(item: logURL) { Label("Send logs", systemImage: "square.and.arrow.up") }
+                            .accessibilityIdentifier("shareLogs")
                     }
                 }
             }
