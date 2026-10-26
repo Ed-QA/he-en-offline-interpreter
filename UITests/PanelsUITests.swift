@@ -41,10 +41,10 @@ final class PanelsUITests: XCTestCase {
     /// order are what "the same size" means here.
     func testBothPanelsAreTheSameSize() {
         let app = launch()
-        // Look the panels up by their own identifiers: `descendants(matching: .any)` walks the
-        // whole tree and was slow enough to hit the 120 s per-test allowance in CI.
-        let hebrew = app.otherElements["hebrewPanel"].firstMatch
-        let english = app.otherElements["englishPanel"].firstMatch
+        // The panels carry their own identifiers; `descendants(matching: .any)` is the only lookup
+        // that sees them (they are not plain otherElements), and two of them are affordable.
+        let hebrew = app.descendants(matching: .any)["hebrewPanel"].firstMatch
+        let english = app.descendants(matching: .any)["englishPanel"].firstMatch
         XCTAssertTrue(hebrew.waitForExistence(timeout: 20), "the Hebrew panel is missing")
         XCTAssertTrue(english.waitForExistence(timeout: 20), "the English panel is missing")
 

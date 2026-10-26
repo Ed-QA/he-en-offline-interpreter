@@ -74,21 +74,24 @@ final class SettingsUITests: XCTestCase {
         let app = launch()
         openSettings(app)
 
-        // The form is lazy, so walk it once and collect what shows up, instead of scanning for
-        // every row separately: the old per-row scan (10 swipes down + 10 up, at slow velocity)
-        // was expensive enough to blow the 120 s per-test allowance in CI.
-        let wanted: Set<String> = ["voicePicker", "rateSlider", "testVoice", "gateModePicker",
-                                   "shareLogsSettings", "resetSettings", "Developer"]
-        var seen = Set<String>()
-        for _ in 0..<6 {
-            let identifiers = app.descendants(matching: .any).allElementsBoundByIndex.map(\.identifier)
-            seen.formUnion(identifiers.filter { wanted.contains($0) })
-            if seen == wanted { break }
-            app.swipeUp()
+        // Rows above the fold. Targeted lookups, not a full-tree walk per row: the earlier scan
+        // (10 swipes down + 10 up per row, then a snapshot per pass) took 110 s and hit the
+        // 120 s per-test allowance in CI.
+        for id in ["voicePicker", "rateSlider", "testVoice", "gateModePicker"] {
+            XCTAssertTrue(app.descendants(matching: .any)[id].firstMatch.waitForExistence(timeout: 10),
+                          "\(id) is missing from Settings")
         }
-        for id in wanted.sorted() {
-            XCTAssertTrue(seen.contains(id), "\(id) is missing from Settings")
+
+        // The form is lazy, so the tail of the list only exists after a scroll.
+        app.swipeUp()
+        app.swipeUp()
+        for id in ["shareLogsSettings", "resetSettings"] {
+            XCTAssertTrue(app.descendants(matching: .any)[id].firstMatch.waitForExistence(timeout: 10),
+                          "\(id) is missing from Settings")
         }
+        // A section header exposes its title as a label, not as an identifier.
+        XCTAssertTrue(app.staticTexts["Developer"].firstMatch.exists,
+                      "the developer section is missing")
     }
 
     func testHearThisVoiceIsSafeToTap() {

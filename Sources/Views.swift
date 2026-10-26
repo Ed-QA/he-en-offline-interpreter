@@ -147,7 +147,11 @@ struct ContentView: View {
     /// panel's text identifier so the layout and audit checks still find the element.
     private func hint(_ text: String, id: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "waveform").font(.footnote)
+            // Decorative: the text carries the meaning, so the icon must not become its own
+            // accessibility element (the audit flags an undescribed image).
+            Image(systemName: "waveform")
+                .font(.footnote)
+                .accessibilityHidden(true)
             Text(text)
                 .font(Theme.captionFont)
                 .accessibilityIdentifier(id)

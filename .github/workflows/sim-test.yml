@@ -79,7 +79,7 @@ jobs:
             -default-test-execution-time-allowance 120 \
             -maximum-test-execution-time-allowance 300 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            2>&1 | tail -n 1200
+            2>&1 | tail -n 6000
       - name: Switch the simulator to dark appearance and large text
         run: |
           UDID="${{ steps.sim.outputs.udid }}"
@@ -112,6 +112,12 @@ jobs:
           for b in TestResults TestResultsDark; do
             echo "--- $b ---"
             xcrun xcresulttool get test-results summary --path "$b.xcresult" 2>/dev/null | head -c 3000 \
+              || echo "not readable"
+            echo "--- $b failure messages ---"
+            # The xcodebuild output is tailed, so the assertion messages of the earlier tests can
+            # fall outside it: pull them straight out of the result bundle instead.
+            xcrun xcresulttool get test-results tests --path "$b.xcresult" 2>/dev/null \
+              | grep -E '"(name|failureText|message)"' | head -c 6000 \
               || echo "not readable"
           done
       - name: Export the screenshots from the result bundles
