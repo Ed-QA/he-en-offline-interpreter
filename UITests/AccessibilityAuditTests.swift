@@ -44,6 +44,26 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
+    /// The log sheet is where "Send logs" lives, so it is audited with the same two documented
+    /// exceptions as the main screen (contrast, and the selectable text panels).
+    func testLogSheetPassesTheSameAudit() throws {
+        let app = launchedApp()
+        app.buttons["Log"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 20), "log did not open")
+        XCTAssertTrue(app.buttons["shareLogs"].waitForExistence(timeout: 20),
+                      "the send-logs control is missing")
+
+        try app.performAccessibilityAudit(for: .all) { issue in
+            let identifier = issue.element?.identifier ?? "no element"
+            print("A11Y LOG AUDIT \(issue.auditType) :: \(identifier) / \(issue.element?.label ?? "")")
+            if issue.auditType == .contrast { return true }
+            if issue.auditType == .hitRegion, ["hebrewText", "englishText"].contains(identifier) {
+                return true
+            }
+            return false
+        }
+    }
+
     /// Layout and hit-target rules that the audit does not check for us.
     func testControlsAreReachableAndInsideTheScreen() {
         let app = launchedApp()
