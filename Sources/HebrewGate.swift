@@ -60,11 +60,14 @@ struct HebrewCompletenessGate {
         if isSTTFinal { score += 1; notes.append("stt-final") }
         if trailingSilence >= mode.silenceToEmit { score += 1; notes.append("pause") }
         if words.count >= 4 { score += 1; notes.append("length-ok") }
-        if words.count < 3 { score -= 2; notes.append("too-short") }
+        // The anti-fragment penalties below only make sense *while* the utterance is still open.
+        // At a real STT endpoint a one-word answer ("כן", "תודה", "מים") is a complete utterance
+        // and must not be scored down for being short.
+        if words.count < 3, !isSTTFinal { score -= 2; notes.append("too-short") }
         if commaEnd { score -= 2; notes.append("comma-end") }
         if unbalanced { score -= 3; notes.append("open-quote") }
         if lastIsNeverEnd { score -= 4; notes.append("dangling:\(last)") }
-        if last.count <= 2 && !terminal { score -= 1; notes.append("tiny-tail") }
+        if last.count <= 2, !terminal, !isSTTFinal { score -= 1; notes.append("tiny-tail") }
         if HebrewCompletenessGate.subordinators.contains(first), words.count < 5, !terminal {
             score -= 1; notes.append("open-subordinate")
         }
@@ -75,7 +78,9 @@ struct HebrewCompletenessGate {
         if ["ב", "ל", "מ", "כ", "ה", "ו", "ש"].contains(last) { score -= 4; notes.append("bare-prefix") }
 
         let hardBlocked = lastIsNeverEnd || unbalanced
-        let passed = score >= mode.scoreThreshold && !hardBlocked
+        // A real endpoint is evidence that the speaker finished: any positive score emits, so a
+        // short-but-final answer is never swallowed. Dangling connectors stay blocked either way.
+        let passed = (score >= mode.scoreThreshold || (isSTTFinal && score >= 1)) && !hardBlocked
         let forced = pendingAge >= mode.maxPendingAge && words.count >= 3 && !hardBlocked
         let escape = pendingAge >= mode.hardMaxAge && words.count >= 3
 
