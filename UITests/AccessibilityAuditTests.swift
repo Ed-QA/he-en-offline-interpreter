@@ -1,5 +1,17 @@
 import XCTest
 
+/// Apple's audit type is an option set of raw bits; the log only shows numbers, so name them.
+/// File-scope rather than a method: the audit handler is an escaping closure, so a method call
+/// inside it would need explicit `self` (which is a build error, not a warning, here).
+private func auditName(of type: XCUIAccessibilityAuditType) -> String {
+    var names: [String] = []
+    if type.contains(.contrast) { names.append("contrast") }
+    if type.contains(.hitRegion) { names.append("hitRegion") }
+    if type.contains(.dynamicType) { names.append("dynamicType") }
+    if type.contains(.textClipped) { names.append("textClipped") }
+    return names.isEmpty ? "type(rawValue: \(type.rawValue))" : names.joined(separator: "|")
+}
+
 /// Apple's own accessibility audit (Xcode 15+ / iOS 17+) plus explicit layout rules. The audit
 /// checks hit regions, Dynamic Type, clipped text, element descriptions and traits automatically,
 /// so an accessibility regression cannot slip in unnoticed with a UI change. It runs twice per CI
@@ -15,16 +27,6 @@ final class AccessibilityAuditTests: XCTestCase {
         return app
     }
 
-    /// Apple's audit type is an option set of raw bits; the log only shows numbers, so name them.
-    private func name(of type: XCUIAccessibilityAuditType) -> String {
-        var names: [String] = []
-        if type.contains(.contrast) { names.append("contrast") }
-        if type.contains(.hitRegion) { names.append("hitRegion") }
-        if type.contains(.dynamicType) { names.append("dynamicType") }
-        if type.contains(.textClipped) { names.append("textClipped") }
-        return names.isEmpty ? "type(rawValue: \(type.rawValue))" : names.joined(separator: "|")
-    }
-
     /// Everything except two known findings is a hard gate:
     ///  * contrast — the status word is about 2:1 on the grouped background (tracked by the test
     ///    below and by the design review);
@@ -37,7 +39,7 @@ final class AccessibilityAuditTests: XCTestCase {
         let app = launchedApp()
         var findings: [String] = []
         try app.performAccessibilityAudit(for: .all) { issue in
-            let line = "\(name(of: issue.auditType)) :: \(issue.element?.identifier ?? "no element") / \(issue.element?.label ?? "") — \(issue.compactDescription)"
+            let line = "\(auditName(of: issue.auditType)) :: \(issue.element?.identifier ?? "no element") / \(issue.element?.label ?? "") — \(issue.compactDescription)"
             print("A11Y AUDIT \(line)")
 
             if issue.auditType == .contrast { return true }
@@ -76,7 +78,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
         var findings: [String] = []
         try app.performAccessibilityAudit(for: .all) { issue in
-            let line = "\(name(of: issue.auditType)) :: \(issue.element?.identifier ?? "no element") / \(issue.element?.label ?? "") — \(issue.compactDescription)"
+            let line = "\(auditName(of: issue.auditType)) :: \(issue.element?.identifier ?? "no element") / \(issue.element?.label ?? "") — \(issue.compactDescription)"
             print("A11Y LOG AUDIT \(line)")
 
             if issue.auditType == .contrast { return true }
