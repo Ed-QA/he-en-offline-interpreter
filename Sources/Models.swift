@@ -105,6 +105,10 @@ enum TextUtil {
             out = out.replacingOccurrences(of: "<", with: " ")
         }
         if out.contains(">") { out = out.replacingOccurrences(of: ">", with: " ") }
+        // SentencePiece marks the start of every decoded word with U+2581. Exports leak it, and
+        // `hasModelArtifacts` used to reject the *whole* sentence for a single underline - real
+        // speech was thrown away. Strip the mark and keep the words.
+        if out.contains("\u{2581}") { out = out.replacingOccurrences(of: "\u{2581}", with: " ") }
         out = out.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         out = out.replacingOccurrences(of: "\\s+([,.;:!?])", with: "$1", options: .regularExpression)
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
