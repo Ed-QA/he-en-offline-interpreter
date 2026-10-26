@@ -49,21 +49,19 @@ final class SettingsUITests: XCTestCase {
     }
 
     /// The settings form is lazy: a row below the fold does not exist until it is scrolled into
-    /// view, so every lookup has to scroll first (the "missing" rows were simply off screen).
-    /// The scan is capped: a long scan per lookup was slow enough to blow the 120 s per-test
-    /// allowance in CI.
-    private func scrollTo(_ app: XCUIApplication, _ id: String, maxSwipes: Int = 4) -> XCUIElement {
-        var element = app.descendants(matching: .any)[id].firstMatch
-        if element.exists && element.isHittable { return element }
+    /// view, so every lookup scrolls first — down, then back up. The dark-mode CI run uses
+    /// accessibility-extra-large text, where rows that sit above the fold at the default size are
+    /// off screen, so the cap has to be generous; it is still capped, because a long scan per
+    /// lookup was slow enough to blow the per-test allowance in CI.
+    private func scrollTo(_ app: XCUIApplication, _ id: String, maxSwipes: Int = 6) -> XCUIElement {
+        let element = app.descendants(matching: .any)[id].firstMatch
         for _ in 0..<maxSwipes {
-            app.swipeUp()
-            element = app.descendants(matching: .any)[id].firstMatch
             if element.exists && element.isHittable { return element }
+            app.swipeUp()
         }
         for _ in 0..<maxSwipes {
-            app.swipeDown()
-            element = app.descendants(matching: .any)[id].firstMatch
             if element.exists && element.isHittable { return element }
+            app.swipeDown()
         }
         return element
     }
@@ -74,19 +72,18 @@ final class SettingsUITests: XCTestCase {
         let app = launch()
         openSettings(app)
 
-        // Rows above the fold. Targeted lookups, not a full-tree walk per row: the earlier scan
-        // (10 swipes down + 10 up per row, then a snapshot per pass) took 110 s and hit the
-        // 120 s per-test allowance in CI.
+        // Rows above the fold at the default text size. The lookup is targeted (one identifier, not
+        // a snapshot per pass): the earlier scan (10 swipes down + 10 up per row, then a snapshot
+        // per pass) took 110 s and hit the per-test allowance in CI. It still scrolls first, because
+        // the dark-mode run uses large text, where even these rows start below the fold.
         for id in ["voicePicker", "rateSlider", "testVoice", "gateModePicker"] {
-            XCTAssertTrue(app.descendants(matching: .any)[id].firstMatch.waitForExistence(timeout: 10),
+            XCTAssertTrue(scrollTo(app, id).waitForExistence(timeout: 5),
                           "\(id) is missing from Settings")
         }
 
         // The form is lazy, so the tail of the list only exists after a scroll.
-        app.swipeUp()
-        app.swipeUp()
         for id in ["shareLogsSettings", "resetSettings"] {
-            XCTAssertTrue(app.descendants(matching: .any)[id].firstMatch.waitForExistence(timeout: 10),
+            XCTAssertTrue(scrollTo(app, id).waitForExistence(timeout: 5),
                           "\(id) is missing from Settings")
         }
         // A section header exposes its title as a label, not as an identifier.
@@ -97,7 +94,7 @@ final class SettingsUITests: XCTestCase {
     func testHearThisVoiceIsSafeToTap() {
         let app = launch()
         openSettings(app)
-        let test = app.buttons["testVoice"]
+        let test = scrollTo(app, "testVoice")
         XCTAssertTrue(test.waitForExistence(timeout: 20))
         test.tap()
         // The sample speaks asynchronously; the app must stay responsive and the sheet open.
@@ -110,7 +107,7 @@ final class SettingsUITests: XCTestCase {
         let app = launch()
         openSettings(app)
 
-        let picker = app.descendants(matching: .any)["gateModePicker"].firstMatch
+        let picker = scrollTo(app, "gateModePicker")
         XCTAssertTrue(picker.waitForExistence(timeout: 20), "the chunking picker is missing")
         picker.tap()
         let option = app.descendants(matching: .any)["Complete (wait for sense)"].firstMatch

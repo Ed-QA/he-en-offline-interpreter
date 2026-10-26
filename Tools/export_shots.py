@@ -23,6 +23,23 @@ def collect(node, found):
             collect(value, found)
 
 
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def is_png(path):
+    """Only the real screenshots belong in the design-review artifact."""
+    with open(path, "rb") as handle:
+        return handle.read(len(PNG_MAGIC)) == PNG_MAGIC
+
+
+def safe_name(name):
+    """`actions/upload-artifact` rejects a path containing a double quote, and the accessibility
+    audit names its attachments after the finding it describes (`description for "gateModePicker"
+    Any`), so keep exported names to a conservative character set."""
+    cleaned = "".join(c if (c.isalnum() or c in "._- ") else "_" for c in name).strip()
+    return cleaned or "attachment"
+
+
 def main():
     bundles = sys.argv[1:] or ["TestResults", "TestResultsDark"]
     out = os.path.join("shots", "out")
@@ -43,7 +60,10 @@ def main():
             source = os.path.join(folder, entry["exportedFileName"])
             if not os.path.isfile(source):
                 continue
-            name = str(entry["suggestedHumanReadableName"]).replace("/", "_")
+            if not is_png(source):
+                # The accessibility audit attaches its finding as a text file; skip those.
+                continue
+            name = safe_name(str(entry["suggestedHumanReadableName"]))
             if not name.lower().endswith(".png"):
                 name += ".png"
             shutil.copyfile(source, os.path.join(out, f"{bundle}-{name}"))
