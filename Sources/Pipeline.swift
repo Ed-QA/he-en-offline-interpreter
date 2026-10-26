@@ -73,13 +73,16 @@ final class Pipeline: ObservableObject {
     var nikudUnavailable = false
     var queue: [String] = []
     var translating = false
-    var pendingSpeech: String?
+    var speechQueue: [String] = []
     /// Hebrew words already queued or spoken for the current utterance — the anti-repeat guard
     /// (item 5: TTS must never re-speak words it has already said).
     var spokenHebrew = ""
-    /// Last English sentence handed to the TTS: an identical request is never queued twice.
+    /// Last English sentence queued for the TTS and the pointed Hebrew it came from. Only an
+    /// identical *pair* is skipped: two different sentences that happen to translate the same,
+    /// and the same words said again in a new utterance, must both be spoken.
     var lastSpokenEnglish = ""
-    /// When the sentence currently waiting for TTS was emitted — used to log emit→speak latency.
+    var lastSpokenHebrew = ""
+    /// When the head of the speech queue was queued - used to log emit→speak latency.
     var pendingSpeechAt: Date?
 
     /// Used by the SwiftUI anchor view (iOS 18+). Stored type-erased because Swift
@@ -220,8 +223,13 @@ final class Pipeline: ObservableObject {
         accumulated = ""
         pendingSince = nil
         spokenHebrew = ""
-        pendingSpeech = nil
+        speechQueue = []
         pendingSpeechAt = nil
+        // A restart must not remember the previous session's sentence, or the first words of
+        // the next one would be stripped as an echo.
+        lastEmitted = ""
+        lastSpokenEnglish = ""
+        lastSpokenHebrew = ""
         Self.trace("STOP listening")
     }
 
