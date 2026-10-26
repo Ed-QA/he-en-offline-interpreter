@@ -50,16 +50,20 @@ final class SettingsUITests: XCTestCase {
 
     /// The settings form is lazy: a row below the fold does not exist until it is scrolled into
     /// view, so every lookup has to scroll first (the "missing" rows were simply off screen).
-    /// Scans down first, then back up, so it works from wherever the form currently is.
-    private func scrollTo(_ app: XCUIApplication, _ id: String, maxSwipes: Int = 10) -> XCUIElement {
+    /// The scan is capped: a long scan per lookup was slow enough to blow the 120 s per-test
+    /// allowance in CI.
+    private func scrollTo(_ app: XCUIApplication, _ id: String, maxSwipes: Int = 4) -> XCUIElement {
         var element = app.descendants(matching: .any)[id].firstMatch
-        for _ in 0..<maxSwipes where !(element.exists && element.isHittable) {
-            app.swipeUp(velocity: .slow)
+        if element.exists && element.isHittable { return element }
+        for _ in 0..<maxSwipes {
+            app.swipeUp()
             element = app.descendants(matching: .any)[id].firstMatch
+            if element.exists && element.isHittable { return element }
         }
-        for _ in 0..<maxSwipes where !(element.exists && element.isHittable) {
-            app.swipeDown(velocity: .slow)
+        for _ in 0..<maxSwipes {
+            app.swipeDown()
             element = app.descendants(matching: .any)[id].firstMatch
+            if element.exists && element.isHittable { return element }
         }
         return element
     }
@@ -70,12 +74,21 @@ final class SettingsUITests: XCTestCase {
         let app = launch()
         openSettings(app)
 
-        for id in ["voicePicker", "rateSlider", "testVoice", "gateModePicker",
-                   "shareLogsSettings", "resetSettings"] {
-            let element = scrollTo(app, id)
-            XCTAssertTrue(element.waitForExistence(timeout: 10), "\(id) is missing from Settings")
+        // The form is lazy, so walk it once and collect what shows up, instead of scanning for
+        // every row separately: the old per-row scan (10 swipes down + 10 up, at slow velocity)
+        // was expensive enough to blow the 120 s per-test allowance in CI.
+        let wanted: Set<String> = ["voicePicker", "rateSlider", "testVoice", "gateModePicker",
+                                   "shareLogsSettings", "resetSettings", "Developer"]
+        var seen = Set<String>()
+        for _ in 0..<6 {
+            let identifiers = app.descendants(matching: .any).allElementsBoundByIndex.map(\.identifier)
+            seen.formUnion(identifiers.filter { wanted.contains($0) })
+            if seen == wanted { break }
+            app.swipeUp()
         }
-        XCTAssertTrue(scrollTo(app, "Developer").exists, "the developer section is missing")
+        for id in wanted.sorted() {
+            XCTAssertTrue(seen.contains(id), "\(id) is missing from Settings")
+        }
     }
 
     func testHearThisVoiceIsSafeToTap() {

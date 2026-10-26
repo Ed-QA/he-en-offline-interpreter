@@ -79,7 +79,7 @@ jobs:
             -default-test-execution-time-allowance 120 \
             -maximum-test-execution-time-allowance 300 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            2>&1 | tail -n 400
+            2>&1 | tail -n 1200
       - name: Switch the simulator to dark appearance and large text
         run: |
           UDID="${{ steps.sim.outputs.udid }}"
