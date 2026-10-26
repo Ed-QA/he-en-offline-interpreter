@@ -73,6 +73,17 @@ final class VoiceSampler {
         var passed: Bool { checks.allSatisfy { $0.1 } && samples.allSatisfy { $0.error == nil } }
     }
 
+    /// Cancellation shared with the render loop: rendering every installed voice takes minutes
+    /// and there used to be no way out. A tiny locked box keeps it `Sendable` without bouncing
+    /// every check through the main actor.
+    final class CancelFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var flag = false
+        var isSet: Bool { lock.lock(); defer { lock.unlock() }; return flag }
+        func set() { lock.lock(); flag = true; lock.unlock() }
+        func clear() { lock.lock(); flag = false; lock.unlock() }
+    }
+
     static let script = "This is a twenty second voice sample for the offline Hebrew to English interpreter. The quick brown fox jumps over the lazy dog. Numbers: one, two, three, twenty five, one hundred. Names: David, Sarah, Jerusalem, Tel Aviv. Please compare this voice with the other voices in the list and choose the clearest one."
 
     static func outputDirectory() -> URL {
@@ -83,12 +94,17 @@ final class VoiceSampler {
     }
 
     static func generateAll(targetSeconds: Double = 20,
+                            shouldCancel: @escaping @Sendable () -> Bool = { false },
                             progress: @escaping (String) -> Void) async -> Report {
         let dir = outputDirectory()
         let voices = Speaker.englishVoices()
         var samples: [Sample] = []
 
         for (idx, voice) in voices.enumerated() {
+            if shouldCancel() {
+                progress("Cancelled — \(idx) of \(voices.count) voices rendered.")
+                break
+            }
             progress("Rendering \(idx + 1)/\(voices.count): \(voice.name) [\(voice.language)]")
             let renderer = OfflineRenderer()
             var all: [Float] = []

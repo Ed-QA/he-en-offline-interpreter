@@ -94,6 +94,10 @@ struct SettingsSheet: View {
                     if let progress = p.voiceSampleProgress {
                         Text(progress).font(.caption).foregroundStyle(.secondary)
                     }
+                    if p.voiceSamplerRunning {
+                        Button("Cancel sampling", role: .destructive) { p.cancelVoiceSampler() }
+                            .accessibilityIdentifier("cancelVoiceSampler")
+                    }
                 }
                 Section {
                     Text("Total offline. No network, no APIs. All processing happens on this iPhone.")
@@ -123,7 +127,13 @@ struct VoiceSamplesSheet: View {
         NavigationStack {
             List {
                 if let progress = p.voiceSampleProgress {
-                    Section("Progress") { Text(progress) }
+                    Section("Progress") {
+                        Text(progress)
+                        if p.voiceSamplerRunning {
+                            Button("Cancel", role: .destructive) { p.cancelVoiceSampler() }
+                                .accessibilityIdentifier("cancelVoiceSampler")
+                        }
+                    }
                 }
                 if let report = p.voiceSampleReport {
                     Section("Verification (3 checks)") {

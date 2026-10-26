@@ -50,6 +50,8 @@ final class Pipeline: ObservableObject {
     @Published var lastGateReason = ""
     @Published var voiceSampleProgress: String?
     @Published var voiceSampleReport: VoiceSampler.Report?
+    /// True while the sampler is rendering, so the UI can offer a way out.
+    @Published var voiceSamplerRunning = false
 
     /// Last partial text written to the on-device trace (de-duplication).
     static var lastTracedPartial = ""
@@ -58,6 +60,8 @@ final class Pipeline: ObservableObject {
     /// tests can drive the entire pipeline with a scripted recogniser instead of a microphone.
     var stt: any StreamingSTT
     let speaker = Speaker()
+    /// Shared with the voice-sampler render loop so "Cancel" can actually stop it.
+    let voiceSampleCancelled = VoiceSampler.CancelFlag()
     var gate = HebrewCompletenessGate()
     var accumulated = ""
     var lastEmitted = ""

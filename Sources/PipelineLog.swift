@@ -126,12 +126,24 @@ extension Pipeline {
     // MARK: - Voice samples
 
     func runVoiceSampler() {
+        voiceSampleCancelled.clear()
+        voiceSamplerRunning = true
         voiceSampleProgress = "Starting…"
         Task { @MainActor in
-            let report = await VoiceSampler.generateAll { line in
+            let report = await VoiceSampler.generateAll(
+                shouldCancel: { [flag = voiceSampleCancelled] in flag.isSet }
+            ) { line in
                 Task { @MainActor in self.voiceSampleProgress = line }
             }
             self.voiceSampleReport = report
+            self.voiceSamplerRunning = false
         }
+    }
+
+    /// Stops the voice sampler after the voice it is rendering now (it used to run to the end
+    /// with no way out).
+    func cancelVoiceSampler() {
+        voiceSampleCancelled.set()
+        voiceSampleProgress = "Cancelling…"
     }
 }
