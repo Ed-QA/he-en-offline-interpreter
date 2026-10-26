@@ -120,6 +120,13 @@ final class Pipeline: ObservableObject {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
+    /// True when the app was launched by a UI test (`-HEENUITest`). The tests do not measure
+    /// model warm-up, and warming the diacritizer on the main actor froze the UI right after
+    /// launch — enough to push UI tests past the 120 s per-test allowance in CI.
+    nonisolated static var isUITest: Bool {
+        ProcessInfo.processInfo.arguments.contains("-HEENUITest")
+    }
+
     /// Pushes the current settings into the objects that consume them.
     func applySettings() {
         gate.mode = gateMode
@@ -195,8 +202,9 @@ final class Pipeline: ObservableObject {
         }
         // Warm the Hebrew diacritizer in the same pass as the translator: it used to load lazily
         // on the first sentence, so the light said READY while the first sentence still paid
-        // ~1.4 s for the 293 MB session. Skipped in a test host (tests warm it themselves).
-        if !Self.isRunningTests {
+        // ~1.4 s for the 293 MB session. Skipped in a test host (tests warm it themselves) and in
+        // a UI-test launch, where it would only freeze the UI the tests are driving.
+        if !Self.isRunningTests && !Self.isUITest {
             let tNikud = Date()
             _ = diacritize("שלום, מה שלומך?")
             Self.trace("warmup nikud \(Int(Date().timeIntervalSince(tNikud) * 1000)) ms")
@@ -207,7 +215,7 @@ final class Pipeline: ObservableObject {
         // block automated screenshots, so `-HEENUITest` keeps the app prepared but idle.
         // The unit-test host runs the same binary without that flag, so it is detected too: a
         // test run must never start the microphone or raise the system permission alert.
-        if ProcessInfo.processInfo.arguments.contains("-HEENUITest") || Self.isRunningTests {
+        if Self.isUITest || Self.isRunningTests {
             Self.trace("auto-start skipped (\(Self.isRunningTests ? "test host" : "-HEENUITest"))")
             return
         }

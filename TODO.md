@@ -14,7 +14,8 @@ Updated with every push. `done` = merged to `main` **and** green in CI.
 ## Send logs (native share → Mail / Messages / AirDrop / Files)
 - [x] Full report: device + app, engine, gate, models, speech, nikud, conversation, trace tail
 - [x] `ShareLink` in the Log sheet (`shareLogs`) and in Settings → Diagnostics (`shareLogsSettings`)
-- [x] Row is always present and ≥ 44 pt (it was 36 pt → failed the hit-target rule; it could also disappear while the report was being written)
+- [x] Row is always present (it used to disappear while the report was being written)
+- [x] Row is ≥ 44 pt: a **toolbar** `ShareLink` reports a 36 pt accessibility frame no matter what frame it is given, so the control is a full-height list row now (`7249865`)
 - [x] Old reports are pruned (Documents is user-visible and grew without bound)
 - [x] Tests: `LogExportTests`, `ShareLogsUITests`, `SettingsUITests`
 
@@ -22,7 +23,8 @@ Updated with every push. `done` = merged to `main` **and** green in CI.
 - [x] Voice, rate and chunking mode persist (`Prefs` → `UserDefaults`) and are re-applied at launch
 - [x] "Hear this voice", rate readout, "Reset settings", "Send logs", plain-language footers
 - [x] Developer tools (voice samples) moved out of the user-facing list
-- [x] Tests: `SettingsPersistenceTests`, `SettingsUITests`
+- [x] Voice sampling can be cancelled: the sampler polled a flag between voices and the UI offers "Cancel" (it used to render every voice with no way out) (`f50b0d1`)
+- [x] Tests: `SettingsPersistenceTests`, `SettingsUITests`, `VoiceSamplerTests`
 
 ## Bugs found in review — fixed
 - [x] `[(stamp)]` printed literally in the trace session marker (double-escaped string)
@@ -53,6 +55,17 @@ Updated with every push. `done` = merged to `main` **and** green in CI.
 - [ ] Intra-op threads 4 → 2–3 — needs device A/B, no simulator evidence
 - [ ] `maxChunkLength` 2046 → 256 — no measured problem left after the word-boundary fix
 - [ ] Default `.balanced` → `.fast` — a quality trade-off for the user to make; the choice is now remembered instead
+
+## CI verification
+- `a7497dc` (fix batch): **Simulator tests failed** — `ShareLogsUITests.testLogSheetOpensTheNativeShareSheet`
+  ("36.0" is less than "44.0": the toolbar `ShareLink` frame). IPA build green.
+- `7249865` moves that control into the log list body. Its test run failed too, and the log showed the
+  real cause of the mass failures: the workflow runs tests with a **120 s per-test allowance**
+  (`-default-test-execution-time-allowance 120`), and the diacritizer warm-up added in `a7497dc` also ran
+  on every `-HEENUITest` launch — a main-actor freeze right after launch, which pushed the audit, panel
+  and settings tests past that allowance.
+- The warm-up now skips a UI-test launch (`Pipeline.isUITest`) and still runs for real launches.
+- The run was also competing with two of my own concurrent CI jobs; the re-run is on a quiet runner.
 
 ## Open
 - [ ] Retire the pinned contrast expectation (`XCTExpectFailure`) after a light-mode visual check
