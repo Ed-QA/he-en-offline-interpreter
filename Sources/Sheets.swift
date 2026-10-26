@@ -31,6 +31,7 @@ struct LogSheet: View {
                             .font(.system(.footnote, design: .monospaced))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("logTrace")
                     }
                 } else {
                     ForEach(p.log) { e in

@@ -57,6 +57,9 @@ final class PipelineFlowTests: XCTestCase {
         pipeline.startTimer()
 
         await wait(6.0) { !pipeline.englishText.isEmpty }
+        // `stop()` clears both panels now (it used to blank Hebrew only), so the panel content has
+        // to be read before the pipeline is stopped.
+        let english = pipeline.englishText
         pipeline.stop()
 
         let hebrew = pipeline.log.map(\.hebrew)
@@ -72,7 +75,6 @@ final class PipelineFlowTests: XCTestCase {
                        "the same text was translated twice: \(translated)")
 
         // The English panel must contain each sentence once, never a growing repeat.
-        let english = pipeline.englishText
         XCTAssertFalse(english.isEmpty, "nothing reached the English panel")
         for line in english.split(separator: "\n") {
             XCTAssertEqual(english.components(separatedBy: line).count - 1, 1,

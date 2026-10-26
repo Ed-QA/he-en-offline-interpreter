@@ -36,21 +36,25 @@ final class PanelsUITests: XCTestCase {
                       "the English hint does not say what to expect: \(english.label)")
     }
 
-    /// The Hebrew panel was a fixed 110 pt strip next to a flexible English slab. With both
-    /// panels flexible their heights follow their content, so the shared width and the layout
-    /// order are what "the same size" means here.
+    /// The Hebrew panel was a fixed 110 pt strip next to a flexible English slab. With both panels
+    /// flexible they share the width and split the height. Panel *element* frames are the union of
+    /// their scrollable content, which overstates their height, so the stable checks are the shared
+    /// width and the Hebrew-above-English order taken from the panel texts.
     func testBothPanelsAreTheSameSize() {
         let app = launch()
-        // The panels carry their own identifiers; `descendants(matching: .any)` is the only lookup
-        // that sees them (they are not plain otherElements), and two of them are affordable.
         let hebrew = app.descendants(matching: .any)["hebrewPanel"].firstMatch
         let english = app.descendants(matching: .any)["englishPanel"].firstMatch
         XCTAssertTrue(hebrew.waitForExistence(timeout: 20), "the Hebrew panel is missing")
         XCTAssertTrue(english.waitForExistence(timeout: 20), "the English panel is missing")
 
         XCTAssertEqual(hebrew.frame.width, english.frame.width, accuracy: 2,
-                       "the panels are not the same width")
-        XCTAssertLessThanOrEqual(hebrew.frame.maxY, english.frame.minY,
+                       "the panels are not the same width: \(hebrew.frame.width) vs \(english.frame.width)")
+
+        let hebrewText = app.staticTexts["hebrewText"]
+        let englishText = app.staticTexts["englishText"]
+        XCTAssertTrue(hebrewText.exists, "the Hebrew panel text is missing")
+        XCTAssertTrue(englishText.exists, "the English panel text is missing")
+        XCTAssertLessThanOrEqual(hebrewText.frame.maxY, englishText.frame.minY,
                                  "the Hebrew panel must sit above the English panel")
     }
 }

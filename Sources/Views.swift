@@ -157,7 +157,9 @@ struct ContentView: View {
                 .accessibilityIdentifier(id)
         }
         .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .center)
+        // Leading-aligned, not centred: both panels must share one text margin, and a centred hint
+        // of a different length reports a different left edge (the layout audit checks exactly that).
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 6)
     }
 

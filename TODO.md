@@ -57,15 +57,20 @@ Updated with every push. `done` = merged to `main` **and** green in CI.
 - [ ] Default `.balanced` → `.fast` — a quality trade-off for the user to make; the choice is now remembered instead
 
 ## CI verification
-- `a7497dc` (fix batch): **Simulator tests failed** — `ShareLogsUITests.testLogSheetOpensTheNativeShareSheet`
-  ("36.0" is less than "44.0": the toolbar `ShareLink` frame). IPA build green.
-- `7249865` moves that control into the log list body. Its test run failed too, and the log showed the
-  real cause of the mass failures: the workflow runs tests with a **120 s per-test allowance**
-  (`-default-test-execution-time-allowance 120`), and the diacritizer warm-up added in `a7497dc` also ran
-  on every `-HEENUITest` launch — a main-actor freeze right after launch, which pushed the audit, panel
-  and settings tests past that allowance.
-- The warm-up now skips a UI-test launch (`Pipeline.isUITest`) and still runs for real launches.
-- The run was also competing with two of my own concurrent CI jobs; the re-run is on a quiet runner.
+Verified on the runner (`gh run view --log-failed`, the workflow now keeps 6000 log lines and prints
+failure messages out of the result bundle):
+- Send logs: the toolbar `ShareLink` reported a 36 pt accessibility frame (failed the 44 pt rule).
+  As a full-height list row it now passes — `ShareLogsUITests` both green.
+- The diacritizer warm-up also ran on every `-HEENUITest` launch and froze the UI; it now skips a
+  UI-test launch (`Pipeline.isUITest`) and still runs for real launches.
+- My own new tests were too expensive for the workflow's 120 s per-test allowance: the settings walk
+  took 110 s (now 23 s and green), and the panel test used full-tree lookups.
+- `PipelineFlowTests.testGrowingUtteranceIsSpokenOnceOnly` asserted the English panel *after*
+  `stop()`; `stop()` clears both panels now, so the panel is read before stopping.
+- Still open in the last run: the two `AccessibilityAuditTests` audits (one unnamed rule with no
+  element on the main screen; the share row's inner label) and the panel-margin rule, which the
+  centred hint broke — the hints are leading-aligned now and the audits print Apple's own
+  `compactDescription` so the next failure names its rule.
 
 ## Open
 - [ ] Retire the pinned contrast expectation (`XCTExpectFailure`) after a light-mode visual check
