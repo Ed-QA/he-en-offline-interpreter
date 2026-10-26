@@ -31,7 +31,7 @@ extension Pipeline {
             guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
             let url = dir.appendingPathComponent("live.log")
             let stamp = DateFormatter.logStamp.string(from: Date())
-            let line = "[\\(stamp)] ===== new session =====\n"
+            let line = "[\(stamp)] ===== new session =====\n"
             if let handle = try? FileHandle(forWritingTo: url) {
                 handle.seekToEndOfFile()
                 handle.write(line.data(using: .utf8) ?? Data())
@@ -100,10 +100,26 @@ extension Pipeline {
         let url = dir.appendingPathComponent("log-\(f.string(from: Date())).txt")
         do {
             try logText().write(to: url, atomically: true, encoding: .utf8)
+            // Every open of the log screen writes a report and Documents is user-visible in
+            // Files, so keep only the newest few: the folder must not grow without bound.
+            Self.pruneReports(in: dir, keeping: 3, newest: url)
             return url
         } catch {
             lastError = error.localizedDescription
             return nil
+        }
+    }
+
+    /// Deletes all but the newest `keeping` reports. The timestamped file names sort, so no
+    /// date parsing is needed.
+    static func pruneReports(in dir: URL, keeping: Int, newest: URL) {
+        let fm = FileManager.default
+        let reports = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        let logs = reports
+            .filter { $0.lastPathComponent.hasPrefix("log-") && $0.pathExtension == "txt" }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+        for old in logs.dropFirst(keeping) where old != newest {
+            try? fm.removeItem(at: old)
         }
     }
 

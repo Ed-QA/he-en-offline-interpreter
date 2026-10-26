@@ -24,7 +24,7 @@ struct SettingsSheet: View {
                 Section {
                     Picker("Voice", selection: $p.voiceIdentifier) {
                         ForEach(Speaker.englishVoices(), id: \.identifier) { v in
-                            Text("\(v.name) [\(v.language)] — \(Speaker.qualityLabel(v))")
+                            Text("\(v.name) · \(v.language) · \(Speaker.qualityLabel(v))")
                                 .tag(Optional(v.identifier))
                         }
                     }

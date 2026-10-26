@@ -58,4 +58,42 @@ final class LogExportTests: XCTestCase {
 
         try? FileManager.default.removeItem(at: url)
     }
+
+    /// The session marker printed `[(stamp)]` instead of a time — a double-escaped string in
+    /// `resetTrace()`. A pulled log has to start with a real timestamp.
+    func testSessionMarkerIsARealTimestamp() async {
+        Pipeline.resetTrace()
+        await wait(5.0) { Pipeline.traceTail().contains("===== new session =====") }
+
+        let line = Pipeline.traceTail()
+            .split(separator: "\n")
+            .first { $0.contains("===== new session =====") }
+            .map(String.init) ?? ""
+        XCTAssertFalse(line.isEmpty, "the session marker never reached the trace")
+        XCTAssertFalse(line.contains("\\("), "the session marker is double-escaped: \(line)")
+        XCTAssertTrue(line.hasPrefix("["), "the session marker has no timestamp: \(line)")
+        XCTAssertTrue(line.contains("]"), "the session marker has no closing bracket: \(line)")
+    }
+
+    /// Documents is user-visible in Files and every open of the log screen writes a report, so
+    /// only the newest few may survive.
+    func testOldReportsArePruned() throws {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let fm = FileManager.default
+        for i in 0..<5 {
+            let old = dir.appendingPathComponent("log-2020010\(i)-12000\(i).txt")
+            try "old report \(i)".write(to: old, atomically: true, encoding: .utf8)
+        }
+
+        let pipeline = Pipeline(stt: ScriptedSTT(steps: []))
+        let fresh = try XCTUnwrap(pipeline.writeLogFile(), "writeLogFile() returned nil")
+
+        let remaining = (try fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))
+            .filter { $0.lastPathComponent.hasPrefix("log-") && $0.pathExtension == "txt" }
+        XCTAssertLessThanOrEqual(remaining.count, 3,
+                                 "old reports were not pruned: \(remaining.map(\.lastPathComponent))")
+        XCTAssertTrue(remaining.contains(fresh), "the newest report was pruned away")
+
+        for url in remaining { try? fm.removeItem(at: url) }
+    }
 }

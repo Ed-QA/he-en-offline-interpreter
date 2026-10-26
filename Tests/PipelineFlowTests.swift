@@ -103,4 +103,19 @@ final class PipelineFlowTests: XCTestCase {
         XCTAssertEqual(Set(translator.calls).count, translator.calls.count,
                        "a translation was queued twice: \(translator.calls)")
     }
+
+    /// `stop()` blanked the Hebrew panel but left the English one on screen, so a stopped
+    /// interpreter still looked like it was mid-sentence.
+    func testStopClearsBothPanels() async {
+        let (pipeline, _, _) = makePipeline([])
+        pipeline.hebrewLive = "שלום"
+        pipeline.englishText = "Hello"
+
+        pipeline.stop()
+
+        XCTAssertEqual(pipeline.hebrewLive, "", "the Hebrew panel kept its text")
+        XCTAssertEqual(pipeline.englishText, "", "the English panel kept its text")
+        XCTAssertFalse(pipeline.running, "the pipeline is still marked as running")
+        XCTAssertEqual(pipeline.status, .idle, "the pipeline is not idle after stop()")
+    }
 }

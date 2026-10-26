@@ -109,6 +109,13 @@ final class Pipeline: ObservableObject {
         applySettings()
     }
 
+    /// True when this process is a test host: XCTest injects this environment variable, and in
+    /// that case the app must not grab the microphone, raise the permission alert or spend a
+    /// minute loading models.
+    nonisolated static var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     /// Pushes the current settings into the objects that consume them.
     func applySettings() {
         gate.mode = gateMode
@@ -182,12 +189,22 @@ final class Pipeline: ObservableObject {
             let ms = Int(Date().timeIntervalSince(t0) * 1000)
             Self.trace("warmup translate \(ms) ms → \(TextUtil.sanitizeTranslation(warm))")
         }
+        // Warm the Hebrew diacritizer in the same pass as the translator: it used to load lazily
+        // on the first sentence, so the light said READY while the first sentence still paid
+        // ~1.4 s for the 293 MB session. Skipped in a test host (tests warm it themselves).
+        if !Self.isRunningTests {
+            let tNikud = Date()
+            _ = diacritize("שלום, מה שלומך?")
+            Self.trace("warmup nikud \(Int(Date().timeIntervalSince(tNikud) * 1000)) ms")
+        }
         // v0.3: launch == live. The interpreter starts listening by itself so the
         // device never needs a button tap to begin working.
         // UI-test hook: the simulator has no usable microphone and a permission alert would
         // block automated screenshots, so `-HEENUITest` keeps the app prepared but idle.
-        if ProcessInfo.processInfo.arguments.contains("-HEENUITest") {
-            Self.trace("auto-start skipped (-HEENUITest)")
+        // The unit-test host runs the same binary without that flag, so it is detected too: a
+        // test run must never start the microphone or raise the system permission alert.
+        if ProcessInfo.processInfo.arguments.contains("-HEENUITest") || Self.isRunningTests {
+            Self.trace("auto-start skipped (\(Self.isRunningTests ? "test host" : "-HEENUITest"))")
             return
         }
         Self.trace("auto-start after prepare")
@@ -254,6 +271,7 @@ final class Pipeline: ObservableObject {
         UIApplication.shared.isIdleTimerDisabled = false
         status = .idle
         hebrewLive = ""
+        englishText = ""   // both panels blank together, not just the Hebrew one
         accumulated = ""
         pendingSince = nil
         spokenHebrew = ""

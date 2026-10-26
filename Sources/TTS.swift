@@ -4,7 +4,10 @@ import AVFoundation
 /// Native iOS English TTS with voice selection.
 final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
     private let synth = AVSpeechSynthesizer()
-    var voiceIdentifier: String?
+    /// Resolving a voice scans the installed voice list (77 ms per utterance on the simulator,
+    /// more on device), so it is resolved once per selection instead of once per sentence.
+    private var cachedVoice: AVSpeechSynthesisVoice?
+    var voiceIdentifier: String? { didSet { if voiceIdentifier != oldValue { cachedVoice = nil } } }
     var rate: Float = 0.5
     private(set) var isSpeaking = false
     var onFinish: (() -> Void)?
@@ -25,8 +28,9 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
                                  options: [.defaultToSpeaker, .allowBluetoothA2DP, .duckOthers])
         try? session.overrideOutputAudioPort(.speaker)
         try? session.setActive(true)
+        if cachedVoice == nil { cachedVoice = Self.voice(for: voiceIdentifier) ?? Self.defaultEnglishVoice() }
         let utterance = AVSpeechUtterance(string: trimmed)
-        utterance.voice = Self.voice(for: voiceIdentifier) ?? Self.defaultEnglishVoice()
+        utterance.voice = cachedVoice
         utterance.rate = rate
         utterance.volume = 1.0
         utterance.postUtteranceDelay = 0.05
