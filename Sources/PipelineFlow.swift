@@ -36,6 +36,15 @@ extension Pipeline {
         hebrewLive = accumulated.isEmpty ? lastEmitted : accumulated
         Self.trace("STT endpoint: \(text)")
         evaluate(accumulated, isFinal: true)
+        // Utterance boundary: forget what was emitted. The next utterance starts clean, so the
+        // same words said again ("תודה רבה" twice) are new speech and must not be stripped as
+        // if they were an echo of this one.
+        lastEmitted = ""
+        accumulated = ""
+        pendingSince = nil
+        // The anti-repeat memory belongs to this utterance only.
+        lastSpokenEnglish = ""
+        lastSpokenHebrew = ""
     }
 
     func evaluate(_ text: String, isFinal: Bool) {
@@ -45,9 +54,11 @@ extension Pipeline {
         let outcome = gate.evaluate(text, trailingSilence: silence, isSTTFinal: isFinal, pendingAge: age)
         lastGateReason = outcome.reason
         if outcome.emit {
-            // Anti-spam: never emit twice in the same breath, and never for a one-word stub.
+            // Anti-spam: never emit twice in the same breath, and never for a one-word stub
+            // *mid-utterance*. At a real endpoint a bare "כן"/"תודה"/"מים" is a complete answer
+            // and used to be swallowed here.
             if !isFinal, Date().timeIntervalSince(lastEmitAt) < 0.35 { return }
-            if TextUtil.tokenize(text).count < 2 { return }
+            if !isFinal, TextUtil.tokenize(text).count < 2 { return }
             emit(text, forced: outcome.forced, isFinal: isFinal)
         } else if pendingSince == nil {
             pendingSince = Date()
@@ -141,13 +152,15 @@ extension Pipeline {
                 if let idx = self.log.lastIndex(where: { $0.hebrew == pointed && $0.english.isEmpty }) {
                     self.log[idx].english = translated
                 }
-                // Item 5: the same English sentence is never queued for TTS twice.
-                if translated != self.lastSpokenEnglish {
-                    self.lastSpokenEnglish = translated
-                    self.pendingSpeech = translated
-                    self.pendingSpeechAt = Date()
+                // Item 5: the same sentence is never queued for TTS twice - but the check is on the
+                // Hebrew/English *pair*, so a genuinely repeated answer is still spoken.
+                if translated == self.lastSpokenEnglish && pointed == self.lastSpokenHebrew {
+                    Self.trace("speak SKIP (identical sentence already spoken)")
                 } else {
-                    Self.trace("speak SKIP (identical to previous sentence)")
+                    self.lastSpokenEnglish = translated
+                    self.lastSpokenHebrew = pointed
+                    if self.speechQueue.isEmpty { self.pendingSpeechAt = Date() }
+                    self.speechQueue.append(translated)
                 }
             }
             self.translating = false
@@ -171,8 +184,8 @@ extension Pipeline {
         if !accumulated.isEmpty && stt.silenceDuration >= gate.mode.silenceToEmit {
             evaluate(accumulated, isFinal: false)
         }
-        if let speech = pendingSpeech, !stt.isSpeechActive, !speaker.isSpeaking, queue.isEmpty {
-            pendingSpeech = nil
+        if let speech = speechQueue.first, !stt.isSpeechActive, !speaker.isSpeaking, queue.isEmpty {
+            speechQueue.removeFirst()
             status = .speaking
             // Mute the mic while talking: the speaker's own English must never be
             // transcribed and re-translated (feedback loop), and the TTS must not be cut off.
@@ -188,7 +201,7 @@ extension Pipeline {
             }
             lastSpeakRequestAt = Date()
             let latency = pendingSpeechAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
-            pendingSpeechAt = nil
+            pendingSpeechAt = speechQueue.isEmpty ? nil : Date()
             Self.trace("TTS speaks (emit→speak \(latency) ms): \(speech)")
             speaker.speak(speech)
         }
@@ -196,7 +209,7 @@ extension Pipeline {
         // only well after the request. Loading a voice can take a moment, and un-muting too
         // early would feed our own English straight back into the recognizer.
         let speakAge = Date().timeIntervalSince(lastSpeakRequestAt)
-        if stt.muted && !speaker.isSpeaking && pendingSpeech == nil && status != .speaking && speakAge > 2.0 {
+        if stt.muted && !speaker.isSpeaking && speechQueue.isEmpty && status != .speaking && speakAge > 2.0 {
             stt.muted = false
         }
         if !speaker.isSpeaking && status == .speaking && speakAge > 0.5 { status = running ? .listening : .idle }
