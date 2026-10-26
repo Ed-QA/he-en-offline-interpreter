@@ -9,7 +9,10 @@ final class SenseLossTests: XCTestCase {
 
     private final class EchoTranslator: TranslationEngine {
         let name = "echo"
+        /// The pointed Hebrew the translator was handed, in order.
         private(set) var calls: [String] = []
+        /// What the TTS must be given: the translator's English output, in the same order.
+        var outputs: [String] { calls.map { "EN[\($0)]" } }
         func translate(_ text: String) async throws -> String {
             calls.append(text)
             return "EN[\(text)]"
@@ -62,14 +65,14 @@ final class SenseLossTests: XCTestCase {
 
         XCTAssertEqual(pipeline.speechQueue.count, 2,
                        "a translated sentence never made it into the speech queue: \(pipeline.speechQueue)")
-        XCTAssertEqual(pipeline.speechQueue, translator.calls,
+        XCTAssertEqual(pipeline.speechQueue, translator.outputs,
                        "the speech queue must hold every translation, in order")
         guard translator.calls.count == 2 else { return XCTFail("only \(translator.calls.count) translations ran") }
 
         // One tick hands exactly the head of the queue to the synthesizer and keeps the rest.
         pipeline.running = true
         pipeline.tick()
-        XCTAssertEqual(pipeline.speechQueue, [translator.calls[1]],
+        XCTAssertEqual(pipeline.speechQueue, [translator.outputs[1]],
                        "tick() did not hand over exactly one sentence")
     }
 

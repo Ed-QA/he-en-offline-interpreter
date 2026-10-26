@@ -52,6 +52,8 @@ struct LogSheet: View {
                         // Native share sheet: Mail, Messages, AirDrop, Save to Files. The whole
                         // report (device, model state, conversation, trace) travels as one file.
                         ShareLink(item: logURL) { Label("Send logs", systemImage: "square.and.arrow.up") }
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
                             .accessibilityIdentifier("shareLogs")
                     }
                 }

@@ -97,7 +97,7 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(wait(15) { shows(relaunched, shown, "Complete") },
                       "the chunking mode was not remembered across a relaunch (picker says \"\(shown.label)\")")
 
-        relaunched.buttons["resetSettings"].firstMatch.tap()
+        relaunched.descendants(matching: .any)["resetSettings"].firstMatch.tap()
         XCTAssertTrue(wait(15) { shows(relaunched, shown, "Balanced") },
                       "reset did not restore the default chunking mode (picker says \"\(shown.label)\")")
     }
@@ -106,7 +106,7 @@ final class SettingsUITests: XCTestCase {
         let app = launch()
         openSettings(app)
 
-        let share = app.buttons["shareLogsSettings"]
+        let share = app.descendants(matching: .any)["shareLogsSettings"].firstMatch
         XCTAssertTrue(share.waitForExistence(timeout: 20), "the send-logs row is missing")
         share.tap()
 

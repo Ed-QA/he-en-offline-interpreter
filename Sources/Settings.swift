@@ -57,8 +57,17 @@ struct SettingsSheet: View {
                     Text("How long the app waits for a sentence to make sense before translating and speaking it. Fast is snappier; Complete waits longer.")
                 }
                 Section("Diagnostics") {
+                    // The row is always present: while the report is still being written it renders
+                    // as a plain label, so it can never disappear from under the user or the audit.
                     if let reportURL {
                         ShareLink(item: reportURL) { Label("Send logs", systemImage: "square.and.arrow.up") }
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                            .accessibilityIdentifier("shareLogsSettings")
+                    } else {
+                        Label("Send logs", systemImage: "square.and.arrow.up")
+                            .foregroundStyle(.secondary)
+                            .frame(minHeight: 44)
                             .accessibilityIdentifier("shareLogsSettings")
                     }
                     Button("Run capability probe") {
@@ -99,7 +108,7 @@ struct SettingsSheet: View {
             .sheet(isPresented: $showProbe) { TextSheet(title: "Capability probe", text: probeText) }
             .sheet(isPresented: $showSamples) { VoiceSamplesSheet() }
             // The report is written when the sheet opens, so "Send logs" always shares a fresh file.
-            .onAppear { reportURL = p.writeLogFile() }
+            .task { reportURL = p.writeLogFile() }
         }
     }
 }
