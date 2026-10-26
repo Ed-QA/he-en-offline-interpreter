@@ -38,12 +38,17 @@ final class SenseLossTests: XCTestCase {
     /// A one-word answer ("כן", "תודה", "מים") is a complete utterance. It used to be dropped
     /// twice over: the gate scored short finals below threshold, and `evaluate` refused
     /// anything under two tokens.
+    /// The translator is handed the *pointed* text (nikud is added first), so the assertions are
+    /// on shape, not on a literal string.
     func testOneWordAnswerIsTranslated() async {
         let (pipeline, translator, _) = makePipeline()
         pipeline.handleEndpoint("כן")
         await wait(3.0) { !translator.calls.isEmpty }
         XCTAssertEqual(pipeline.log.count, 1, "a one-word answer produced no log entry")
-        XCTAssertEqual(translator.calls, ["כן"], "a one-word answer was never translated")
+        XCTAssertEqual(translator.calls.count, 1, "a one-word answer was never translated")
+        guard let pointed = translator.calls.first else { return XCTFail("no translation ran") }
+        XCTAssertGreaterThan(pointed.unicodeScalars.count, "כן".unicodeScalars.count,
+                             "the answer reached the translator unpointed: \(pointed)")
     }
 
     /// Two sentences that finish while the speaker is still talking must both reach the TTS.
@@ -55,14 +60,16 @@ final class SenseLossTests: XCTestCase {
         pipeline.handleEndpoint("תגיד לי איפה התחנה המרכזית.")
         await wait(3.0) { translator.calls.count == 2 }
 
-        XCTAssertEqual(pipeline.speechQueue,
-                       ["EN[אני רוצה לקנות לחם מחר בבוקר.]", "EN[תגיד לי איפה התחנה המרכזית.]"],
-                       "a translated sentence never made it into the speech queue")
+        XCTAssertEqual(pipeline.speechQueue.count, 2,
+                       "a translated sentence never made it into the speech queue: \(pipeline.speechQueue)")
+        XCTAssertEqual(pipeline.speechQueue, translator.calls,
+                       "the speech queue must hold every translation, in order")
+        guard translator.calls.count == 2 else { return XCTFail("only \(translator.calls.count) translations ran") }
 
         // One tick hands exactly the head of the queue to the synthesizer and keeps the rest.
         pipeline.running = true
         pipeline.tick()
-        XCTAssertEqual(pipeline.speechQueue, ["EN[תגיד לי איפה התחנה המרכזית.]"],
+        XCTAssertEqual(pipeline.speechQueue, [translator.calls[1]],
                        "tick() did not hand over exactly one sentence")
     }
 
@@ -75,8 +82,10 @@ final class SenseLossTests: XCTestCase {
         await wait(3.0) { translator.calls.count == 1 }
         pipeline.handleEndpoint("תודה רבה")
         await wait(3.0) { translator.calls.count == 2 }
-        XCTAssertEqual(translator.calls, ["תודה רבה", "תודה רבה"],
+        XCTAssertEqual(translator.calls.count, 2,
                        "the second utterance was swallowed as a repeat: \(translator.calls)")
+        XCTAssertEqual(Set(translator.calls).count, 1,
+                       "the same input must translate identically: \(translator.calls)")
         XCTAssertEqual(pipeline.speechQueue.count, 2, "the repeat was never queued for speech")
     }
 
