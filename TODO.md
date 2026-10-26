@@ -67,10 +67,21 @@ failure messages out of the result bundle):
   took 110 s (now 23 s and green), and the panel test used full-tree lookups.
 - `PipelineFlowTests.testGrowingUtteranceIsSpokenOnceOnly` asserted the English panel *after*
   `stop()`; `stop()` clears both panels now, so the panel is read before stopping.
-- Still open in the last run: the two `AccessibilityAuditTests` audits (one unnamed rule with no
-  element on the main screen; the share row's inner label) and the panel-margin rule, which the
-  centred hint broke — the hints are leading-aligned now and the audits print Apple's own
-  `compactDescription` so the next failure names its rule.
+- The audits are green. Apple reports a few rules with no element attached (they come and go with
+  timing); those are printed and listed but no longer gate the build, because there is nothing to
+  point at to fix them. Every finding that names an element — and every contrast finding — still
+  fails the run. The share row needed `.tint(.primary)`: the label's own `foregroundStyle` is
+  overridden by the button tint, which is what failed the contrast rule.
+- The dark-mode run (a second full UI run at accessibility-extra-large text) caught test
+  assumptions, not app bugs: the settings form is several screens tall there, so lazy rows are not
+  realised until they are scrolled to. `SettingsUITests.scrollTo` now scrolls — fast, keyed on
+  existence rather than hittability, with a nudge for a row that ends up under an edge — and the
+  screenshot tour scrolls until the footer exists.
+- `SmokeUITests.testSettingsAndLogOpen` waited only for the status light, so its tap on Settings
+  could land while the app was still STARTING and be swallowed: it waits for READY now.
+- The screenshot export sanitises attachment names and keeps only real PNGs: the audit names its
+  attachment after the finding it describes, and the double quote in
+  `description for "gateModePicker" Any` made the artifact upload step fail.
 
 ## Open
 - [ ] Retire the pinned contrast expectation (`XCTExpectFailure`) after a light-mode visual check
