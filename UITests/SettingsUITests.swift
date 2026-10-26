@@ -39,6 +39,15 @@ final class SettingsUITests: XCTestCase {
         return condition()
     }
 
+    /// A picker exposes its selection as the element label, as its value, or as a separate static
+    /// text depending on the style - accept any of them, so the assertion tests the setting and
+    /// not the rendering.
+    private func shows(_ app: XCUIApplication, _ picker: XCUIElement, _ text: String) -> Bool {
+        if picker.label.contains(text) { return true }
+        if let value = picker.value as? String, value.contains(text) { return true }
+        return app.staticTexts[text].exists || app.buttons[text].exists
+    }
+
     /// Everything a user actually needs: pick a voice, set the rate, hear it, choose how the app
     /// chunks speech, send the logs, reset. The developer tools stay reachable but separate.
     func testSettingsOffersTheNeededControls() {
@@ -85,12 +94,12 @@ final class SettingsUITests: XCTestCase {
         openSettings(relaunched)
         let shown = relaunched.descendants(matching: .any)["gateModePicker"].firstMatch
         XCTAssertTrue(shown.waitForExistence(timeout: 20))
-        XCTAssertTrue(wait(15) { shown.label.contains("Complete") },
-                      "the chunking mode was not remembered across a relaunch (showing \"\(shown.label)\")")
+        XCTAssertTrue(wait(15) { shows(relaunched, shown, "Complete") },
+                      "the chunking mode was not remembered across a relaunch (picker says \"\(shown.label)\")")
 
         relaunched.buttons["resetSettings"].firstMatch.tap()
-        XCTAssertTrue(wait(15) { shown.label.contains("Balanced") },
-                      "reset did not restore the default chunking mode (showing \"\(shown.label)\")")
+        XCTAssertTrue(wait(15) { shows(relaunched, shown, "Balanced") },
+                      "reset did not restore the default chunking mode (picker says \"\(shown.label)\")")
     }
 
     func testSendLogsFromSettingsOpensTheNativeShareSheet() {
