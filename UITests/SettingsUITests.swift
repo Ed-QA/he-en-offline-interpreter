@@ -50,18 +50,31 @@ final class SettingsUITests: XCTestCase {
 
     /// The settings form is lazy: a row below the fold does not exist until it is scrolled into
     /// view, so every lookup scrolls first — down, then back up. The dark-mode CI run uses
-    /// accessibility-extra-large text, where rows that sit above the fold at the default size are
-    /// off screen, so the cap has to be generous; it is still capped, because a long scan per
-    /// lookup was slow enough to blow the per-test allowance in CI.
-    private func scrollTo(_ app: XCUIApplication, _ id: String, maxSwipes: Int = 6) -> XCUIElement {
+    /// accessibility-extra-large text, where the form is several screens tall and even the upper
+    /// rows start below the fold, so the swipes are fast and the cap is generous; the scan is still
+    /// capped, because a long scan per lookup was slow enough to blow the per-test allowance in CI.
+    /// Existence is the condition, not hittability: a fast swipe can overshoot, and a row that
+    /// exists but sits under an edge is nudged back into view instead of being swiped past.
+    private func scrollTo(_ app: XCUIApplication, _ id: String, maxSwipes: Int = 8) -> XCUIElement {
         let element = app.descendants(matching: .any)[id].firstMatch
         for _ in 0..<maxSwipes {
-            if element.exists && element.isHittable { return element }
-            app.swipeUp()
+            if element.exists { return nudge(app, element) }
+            app.swipeUp(velocity: .fast)
         }
         for _ in 0..<maxSwipes {
-            if element.exists && element.isHittable { return element }
-            app.swipeDown()
+            if element.exists { return nudge(app, element) }
+            app.swipeDown(velocity: .fast)
+        }
+        return element
+    }
+
+    /// One slow swipe back towards the row when it exists but is not tappable where it sits. If that
+    /// swipe takes the row back out of the realised window, it is undone.
+    private func nudge(_ app: XCUIApplication, _ element: XCUIElement) -> XCUIElement {
+        guard element.exists, !element.isHittable else { return element }
+        app.swipeDown(velocity: .slow)
+        if !element.exists {
+            app.swipeUp(velocity: .slow)
         }
         return element
     }
