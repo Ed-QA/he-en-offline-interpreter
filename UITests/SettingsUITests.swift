@@ -56,7 +56,12 @@ final class SettingsUITests: XCTestCase {
     /// Existence is the condition, not hittability: a fast swipe can overshoot, and a row that
     /// exists but sits under an edge is nudged back into view instead of being swiped past.
     private func scrollTo(_ app: XCUIApplication, _ id: String, maxSwipes: Int = 8) -> XCUIElement {
-        let element = app.descendants(matching: .any)[id].firstMatch
+        scrollTo(app, app.descendants(matching: .any)[id].firstMatch, maxSwipes: maxSwipes)
+    }
+
+    /// The same lookup for an element that is only known by what it is (a section header exposes its
+    /// title as a label, not as an identifier).
+    private func scrollTo(_ app: XCUIApplication, _ element: XCUIElement, maxSwipes: Int = 8) -> XCUIElement {
         for _ in 0..<maxSwipes {
             if element.exists { return nudge(app, element) }
             app.swipeUp(velocity: .fast)
@@ -99,8 +104,9 @@ final class SettingsUITests: XCTestCase {
             XCTAssertTrue(scrollTo(app, id).waitForExistence(timeout: 5),
                           "\(id) is missing from Settings")
         }
-        // A section header exposes its title as a label, not as an identifier.
-        XCTAssertTrue(app.staticTexts["Developer"].firstMatch.exists,
+        // A section header exposes its title as a label, not as an identifier, and at large text
+        // sizes it sits below the reset row that the loop above stopped at.
+        XCTAssertTrue(scrollTo(app, app.staticTexts["Developer"].firstMatch).waitForExistence(timeout: 5),
                       "the developer section is missing")
     }
 
