@@ -10,35 +10,35 @@ struct LogSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Send logs is a full-height row of its own: as a toolbar item it reported a 36 pt
-                // accessibility frame, below the 44 pt tap-target rule (ShareLogsUITests asserts
-                // that directly). The label is primary-coloured because the button tint fails the
-                // audit's contrast rule on this background.
-                if let logURL {
-                    ShareLink(item: logURL) {
-                        Label("Send logs", systemImage: "square.and.arrow.up")
-                            .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .contentShape(Rectangle())
+            List {
+                Section {
+                    // Send logs lives in the list body, not the toolbar: a toolbar item reports a
+                    // 36 pt accessibility frame, below the 44 pt tap-target rule. A row is full height.
+                    // `.tint(.primary)` overrides the button tint, which fails the contrast rule on
+                    // this background (the label's own foreground style is not enough on its own).
+                    if let logURL {
+                        ShareLink(item: logURL) {
+                            Label("Send logs", systemImage: "square.and.arrow.up")
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .tint(.primary)
+                        .accessibilityIdentifier("shareLogs")
                     }
-                    .accessibilityIdentifier("shareLogs")
-                    .padding(.horizontal, 16)
-                    Divider()
                 }
                 if p.log.isEmpty {
                     // Item 4: this screen must never look empty. Before the first sentence is
                     // emitted it shows the live on-device trace instead of a blank list.
-                    ScrollView {
+                    Section {
                         Text(trace.isEmpty ? "…" : trace)
                             .font(.system(.footnote, design: .monospaced))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding()
                             .accessibilityIdentifier("logTrace")
                     }
                 } else {
-                    List(p.log) { e in
+                    ForEach(p.log) { e in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(DateFormatter.logStamp.string(from: e.date))
                                 .font(Theme.captionFont)
