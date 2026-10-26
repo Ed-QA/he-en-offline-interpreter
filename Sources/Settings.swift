@@ -60,8 +60,13 @@ struct SettingsSheet: View {
                     // The row is always present: while the report is still being written it renders
                     // as a plain label, so it can never disappear from under the user or the audit.
                     if let reportURL {
-                        ShareLink(item: reportURL) { Label("Send logs", systemImage: "square.and.arrow.up") }
-                            .frame(minWidth: 44, minHeight: 44)
+                        ShareLink(item: reportURL) {
+                            Label("Send logs", systemImage: "square.and.arrow.up")
+                                // Primary colour: the button tint fails the contrast rule on this
+                                // background (same fix as the log sheet's row).
+                                .foregroundStyle(.primary)
+                        }
+                        .frame(minWidth: 44, minHeight: 44)
                             .contentShape(Rectangle())
                             .accessibilityIdentifier("shareLogsSettings")
                     } else {
