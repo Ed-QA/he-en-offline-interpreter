@@ -34,11 +34,15 @@ final class Pipeline: ObservableObject {
     @Published var hebrewLive = ""
     @Published var englishText = ""
     @Published var log: [LogEntry] = []
-    @Published var gateMode: GateMode = .balanced { didSet { gate.mode = gateMode } }
-    @Published var voiceIdentifier: String? = Speaker.defaultEnglishVoice()?.identifier {
-        didSet { speaker.voiceIdentifier = voiceIdentifier }
+    @Published var gateMode: GateMode = Prefs.gateMode {
+        didSet { gate.mode = gateMode; Prefs.gateMode = gateMode }
     }
-    @Published var rate: Float = 0.5 { didSet { speaker.rate = rate } }
+    @Published var voiceIdentifier: String? = Prefs.voiceIdentifier ?? Speaker.defaultEnglishVoice()?.identifier {
+        didSet { speaker.voiceIdentifier = voiceIdentifier; Prefs.voiceIdentifier = voiceIdentifier }
+    }
+    @Published var rate: Float = Prefs.rate {
+        didSet { speaker.rate = rate; Prefs.rate = rate }
+    }
     @Published var sttStatus = "checking…"
     @Published var engineStatus = "checking…"
     @Published var engineReady = false
@@ -99,6 +103,36 @@ final class Pipeline: ObservableObject {
 
     init(stt: (any StreamingSTT)? = nil) {
         self.stt = stt ?? SherpaStreamingSTT()
+        // `didSet` does not run during initialisation, so the stored preferences have to be
+        // pushed into the speaker and the gate explicitly. Without this a remembered voice or
+        // rate only took effect after the user touched the picker again.
+        applySettings()
+    }
+
+    /// Pushes the current settings into the objects that consume them.
+    func applySettings() {
+        gate.mode = gateMode
+        speaker.voiceIdentifier = voiceIdentifier
+        speaker.rate = rate
+    }
+
+    /// Back to the shipped defaults, and forget them so the next launch is a fresh install.
+    func resetSettings() {
+        gateMode = .balanced
+        voiceIdentifier = Speaker.defaultEnglishVoice()?.identifier
+        rate = Prefs.defaultRate
+        Prefs.reset()
+    }
+
+    /// Settings helper: hear the chosen voice without waiting for a translation. The microphone
+    /// is muted for the duration so the interpreter cannot transcribe itself.
+    func speakSample() {
+        let wasMuted = stt.muted
+        stt.muted = true
+        speaker.onFinish = { [weak self] in
+            Task { @MainActor in self?.stt.muted = wasMuted }
+        }
+        speaker.speak("This is how the interpreter will sound.")
     }
 
     func prepare() async {

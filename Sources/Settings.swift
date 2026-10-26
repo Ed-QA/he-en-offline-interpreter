@@ -8,6 +8,7 @@ struct SettingsSheet: View {
     @State private var showProbe = false
     @State private var probeText = ""
     @State private var showSamples = false
+    @State private var reportURL: URL?
 
     var body: some View {
         NavigationStack {
@@ -20,40 +21,69 @@ struct SettingsSheet: View {
                     }
                     Button("Re-check availability") { Task { await p.prepare() } }
                 }
-                Section("Voice") {
+                Section {
                     Picker("Voice", selection: $p.voiceIdentifier) {
                         ForEach(Speaker.englishVoices(), id: \.identifier) { v in
                             Text("\(v.name) [\(v.language)] — \(Speaker.qualityLabel(v))")
                                 .tag(Optional(v.identifier))
                         }
                     }
+                    .accessibilityIdentifier("voicePicker")
                     HStack {
                         Text("Rate")
-                        Slider(value: $p.rate, in: 0.35...0.65)
+                        Slider(value: $p.rate, in: Prefs.rateRange)
+                            .accessibilityIdentifier("rateSlider")
+                        Text(String(format: "%.2f", p.rate))
+                            .font(.footnote.monospacedDigit())
+                            .foregroundStyle(.secondary)
                     }
+                    Button("Hear this voice") { p.speakSample() }
+                        .accessibilityIdentifier("testVoice")
+                } header: {
+                    Text("Voice")
+                } footer: {
+                    Text("The interpreter speaks English with the system voice. \"Hear this voice\" plays one sentence.")
                 }
-                Section("Chunking — Hebrew sense gate") {
+                Section {
                     Picker("Mode", selection: $p.gateMode) {
                         ForEach(GateMode.allCases) { m in
                             Text(m.label).tag(m)
                         }
                     }
-                }
-                Section("Voice samples — 20 seconds each") {
-                    Button("Generate samples for ALL English voices") {
-                        p.runVoiceSampler()
-                        showSamples = true
-                    }
-                    if let progress = p.voiceSampleProgress {
-                        Text(progress).font(.caption).foregroundStyle(.secondary)
-                    }
+                    .accessibilityIdentifier("gateModePicker")
+                } header: {
+                    Text("Chunking — Hebrew sense gate")
+                } footer: {
+                    Text("How long the app waits for a sentence to make sense before translating and speaking it. Fast is snappier; Complete waits longer.")
                 }
                 Section("Diagnostics") {
+                    if let reportURL {
+                        ShareLink(item: reportURL) { Label("Send logs", systemImage: "square.and.arrow.up") }
+                            .accessibilityIdentifier("shareLogsSettings")
+                    }
                     Button("Run capability probe") {
                         Task {
                             probeText = await CapabilityProbe.run()
                             showProbe = true
                         }
+                    }
+                }
+                Section {
+                    Button("Reset settings", role: .destructive) { p.resetSettings() }
+                        .accessibilityIdentifier("resetSettings")
+                } footer: {
+                    Text("Restores the default voice, rate and chunking mode.")
+                }
+                Section("Developer") {
+                    Button("Generate voice samples for ALL English voices") {
+                        p.runVoiceSampler()
+                        showSamples = true
+                    }
+                    Text("Writes a 20-second sample per voice into the app's Documents folder. Not needed for normal use.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let progress = p.voiceSampleProgress {
+                        Text(progress).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Section {
@@ -68,6 +98,8 @@ struct SettingsSheet: View {
             }
             .sheet(isPresented: $showProbe) { TextSheet(title: "Capability probe", text: probeText) }
             .sheet(isPresented: $showSamples) { VoiceSamplesSheet() }
+            // The report is written when the sheet opens, so "Send logs" always shares a fresh file.
+            .onAppear { reportURL = p.writeLogFile() }
         }
     }
 }
