@@ -36,6 +36,9 @@ final class WhisperNikudSTT: StreamingSTT {
     private static let maxWindow: TimeInterval = 12
     /// How much new audio triggers a fresh partial transcription.
     private static let partialStep: TimeInterval = 2.5
+    /// Audio carried across an utterance handover, so a word split by the endpoint is still heard
+    /// in full by the recogniser that transcribes it.
+    private static let handover: TimeInterval = 0.3
     /// Trailing silence that closes an utterance.
     private static let endpointSilence: TimeInterval = 0.7
     /// Audio level above which a frame counts as speech.
@@ -50,6 +53,11 @@ final class WhisperNikudSTT: StreamingSTT {
     private var lastSpeechAt = Date.distantPast
     private var lastPartialLength = 0
     private var running = false
+    /// Text of the last finished utterance. The next utterance's first result is passed through
+    /// `TextUtil.dropOverlap` against it, so the 0.3 s of audio carried across the handover can
+    /// never appear twice on screen, in the translation or in the voice.
+    private var lastFinalText = ""
+    private var pendingOverlapTrim = false
 
     init(input: AudioInput = MicrophoneInput()) {
         self.input = input
@@ -141,15 +149,31 @@ final class WhisperNikudSTT: StreamingSTT {
         SherpaOnnxAcceptWaveformOffline(stream, Int32(rate), audio, Int32(audio.count))
         SherpaOnnxDecodeOfflineStream(recognizer, stream)
         let result = SherpaOnnxGetOfflineStreamResult(stream)
-        let text = result.map { String(cString: $0.pointee.text) }?
+        var text = result.map { String(cString: $0.pointee.text) }?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if let result { SherpaOnnxDestroyOfflineRecognizerResult(result) }
         SherpaOnnxDestroyOfflineStream(stream)
 
         guard !text.isEmpty else { return }
+        lock.lock()
+        if pendingOverlapTrim {
+            let trimmed = TextUtil.dropOverlap(previous: lastFinalText, next: text)
+            if !trimmed.isEmpty {
+                text = trimmed
+                pendingOverlapTrim = false
+            }
+        }
+        lock.unlock()
         if final {
             lock.lock()
-            samples.removeAll(keepingCapacity: true)
+            // Handover: keep the last 0.3 s of audio, exactly like the two-recogniser scheme —
+            // the standby became live carrying that tail. The next utterance starts from it, and
+            // `dropOverlap` above is what stops the carried words from being said twice.
+            let keep = Int(Self.handover * sampleRate)
+            samples = keep > 0 ? Array(samples.suffix(keep)) : []
+            lastPartialLength = 0
+            lastFinalText = text
+            pendingOverlapTrim = true
             silenceDuration = .greatestFiniteMagnitude
             lock.unlock()
             onEndpoint?(text)
@@ -168,6 +192,8 @@ final class WhisperNikudSTT: StreamingSTT {
         lock.lock()
         samples.removeAll(keepingCapacity: true)
         lastPartialLength = 0
+        lastFinalText = ""
+        pendingOverlapTrim = false
         lastSpeechAt = .distantPast
         silenceDuration = .greatestFiniteMagnitude
         running = true
@@ -180,6 +206,8 @@ final class WhisperNikudSTT: StreamingSTT {
         running = false
         samples.removeAll(keepingCapacity: true)
         lastPartialLength = 0
+        lastFinalText = ""
+        pendingOverlapTrim = false
         silenceDuration = .greatestFiniteMagnitude
         lock.unlock()
         input.stop()
