@@ -51,7 +51,7 @@ final class WhisperNikudSTT: StreamingSTT {
                          DispatchQueue(label: "heen.whisper.lane1", qos: .userInitiated)]
     private var lane = 0
 
-    private var recognizer: OpaquePointer?
+    private var recognizer: SherpaOnnxOfflineRecognizer?
     /// Rolling audio, never longer than one window.
     private var ring: [Float] = []
     /// Samples collected since the last window was cut.
@@ -73,7 +73,7 @@ final class WhisperNikudSTT: StreamingSTT {
     }
 
     deinit {
-        if let recognizer { SherpaOnnxDestroyOfflineRecognizer(recognizer) }
+        recognizer = nil
     }
 
     // MARK: - Model
@@ -91,10 +91,10 @@ final class WhisperNikudSTT: StreamingSTT {
         }
     }
 
-    private static func makeRecognizer() -> OpaquePointer? {
+    private static func makeRecognizer() -> SherpaOnnxOfflineRecognizer? {
         guard missingFiles().isEmpty, let folder = folder() else { return nil }
         let base = folder.path
-        let config = sherpaOnnxOfflineRecognizerConfig(
+        var config = sherpaOnnxOfflineRecognizerConfig(
             featConfig: sherpaOnnxFeatureConfig(sampleRate: 16_000, featureDim: 80),
             modelConfig: sherpaOnnxOfflineModelConfig(
                 tokens: "\(base)/tokens.txt",
@@ -108,7 +108,7 @@ final class WhisperNikudSTT: StreamingSTT {
                 debug: 0,
                 modelType: "whisper"),
             decodingMethod: "greedy_search")
-        return SherpaOnnxCreateOfflineRecognizer(&config)
+        return SherpaOnnxOfflineRecognizer(config: &config)
     }
 
     // MARK: - Audio in
@@ -164,14 +164,9 @@ final class WhisperNikudSTT: StreamingSTT {
         lock.unlock()
         queue.async { [weak self] in
             guard let self, let recognizer = self.recognizer else { return }
-            let stream = SherpaOnnxCreateOfflineStream(recognizer)
-            SherpaOnnxAcceptWaveformOffline(stream, Int32(rate), window, Int32(window.count))
-            SherpaOnnxDecodeOfflineStream(recognizer, stream)
-            let result = SherpaOnnxGetOfflineStreamResult(stream)
-            let text = result.map { String(cString: $0.pointee.text) }?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if let result { SherpaOnnxDestroyOfflineRecognizerResult(result) }
-            SherpaOnnxDestroyOfflineStream(stream)
+            let text = recognizer.decode(samples: window, sampleRate: Int(rate))
+                .text
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return }
             self.take(text: text)
         }
