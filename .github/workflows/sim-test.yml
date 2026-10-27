@@ -15,8 +15,10 @@ jobs:
         id: model-cache
         uses: actions/cache@v4
         with:
-          path: Model
-          key: models-${{ hashFiles('Tools/prepare_model.py', 'Tools/prepare_stt.py') }}
+          path: |
+            Model
+            Model-uk
+          key: models-v2-${{ hashFiles('Tools/prepare_model.py', 'Tools/prepare_stt.py') }}
       - name: Prepare offline translation model (only on cache miss)
         if: steps.model-cache.outputs.cache-hit != 'true'
         run: |

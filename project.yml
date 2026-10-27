@@ -46,6 +46,10 @@ targets:
         type: folder
       - path: Model-uk
         type: folder
+        # Ukrainian is prepared by Tools/prepare_model.py. Marked optional so a machine that only
+        # has the English model (or a warm CI cache from before Ukrainian existed) still generates
+        # a project instead of failing the whole run.
+        optional: true
     dependencies:
       - package: onnxruntime-libs
         product: onnxruntime-ios-shared
