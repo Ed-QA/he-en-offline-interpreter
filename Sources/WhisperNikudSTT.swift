@@ -25,8 +25,14 @@ final class WhisperNikudSTT: StreamingSTT {
     private(set) var silenceDuration: TimeInterval = .greatestFiniteMagnitude
     var isSpeechActive: Bool { silenceDuration < 0.35 }
     var statusText: String {
-        recognizer == nil
-            ? "Hebrew ASR with nikud not available (\(Self.missingFiles().joined(separator: ", ")))"
+        let missing = Self.missingFiles()
+        if !missing.isEmpty {
+            return "Hebrew ASR with nikud not available (\(missing.joined(separator: ", ")))"
+        }
+        // The weights load on Start, so "not loaded yet" is the normal state until then and must
+        // not read as a failure. What matters to the user is whether the model is *there*.
+        return recognizer == nil
+            ? "Whisper-Nikudon (nikud from the voice), int8 — loads on Start"
             : "Whisper-Nikudon (nikud from the voice), int8"
     }
 
@@ -66,7 +72,10 @@ final class WhisperNikudSTT: StreamingSTT {
 
     init(input: AudioInput = MicrophoneInput()) {
         self.input = input
-        recognizer = Self.makeRecognizer()
+        // The weights are NOT loaded here. This initialiser runs during app launch (Pipeline builds
+        // it at startup), and pulling 843 MB of int8 weights in at launch — before the user asked
+        // for anything — is what made the app close instantly on the phone with no error. Launch
+        // stays light; the model loads on the first Start.
         input.onSamples = { [weak self] chunk, rate in
             self?.accept(chunk, rate: rate)
         }
@@ -204,6 +213,10 @@ final class WhisperNikudSTT: StreamingSTT {
     // MARK: - StreamingSTT
 
     func start() throws {
+        // First Start loads the weights. Doing it here — not in `init`, which runs at app launch —
+        // is what keeps launch alive on a phone that kills a sudden 843 MB spike. If the model is
+        // broken this throws and the app shows it, instead of dying silently.
+        if recognizer == nil { recognizer = Self.makeRecognizer() }
         guard recognizer != nil else {
             throw NSError(domain: "heen.stt", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: statusText])
