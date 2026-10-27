@@ -30,6 +30,54 @@ CONVERTER = "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/scripts
 
 WANTED = ["encoder_model.onnx", "decoder_model.onnx", "tokens.txt"]
 
+# Every Hebrew recogniser on Hugging Face that emits nikud itself, best fit first. The first one
+# that downloads wins; a gated entry is skipped unless HF_TOKEN is present, so a rejection of the
+# top choice is not a dead end. Ratings: fit for this app (general Hebrew, speed, footprint).
+CANDIDATES = [
+    {
+        "repo": "MayBog/whisper-hebrew-nikud-v1",
+        "gated": True,
+        "fit": 10,
+        "why": "whisper-large-v3-turbo, built for general Hebrew with nikud - best quality fit, "
+               "needs the model terms accepted and HF_TOKEN",
+    },
+    {
+        "repo": "cantillation/Teamim-IvritAI-large-v3-turbo-new_WeightDecay-0.005_"
+                "Augmented_WithSRT_date-23-04-2025",
+        "gated": False,
+        "fit": 8,
+        "why": "same base as the top choice (ivrit-ai/whisper-large-v3-turbo), he-cantillation, "
+               "turbo speed, ungated - pointed output without any token",
+    },
+    {
+        "repo": "cantillation/Teamim-large-v3-turbo_WeightDecay-0.005_Augmented_date-07-05-2025",
+        "gated": False,
+        "fit": 7,
+        "why": "openai/whisper-large-v3-turbo base, he-cantillation, turbo speed, ungated",
+    },
+    {
+        "repo": "cantillation/whisper-medium-he-teamim-silsuless-ori-TrainAndVal-Nikud",
+        "gated": False,
+        "fit": 6,
+        "why": "whisper-medium, nikud in its own name, ungated - slower than turbo, smaller RAM",
+    },
+    {
+        "repo": "cantillation/whisper-small-he-teamim5",
+        "gated": False,
+        "fit": 4,
+        "why": "whisper-small, ungated - smallest footprint that still points (approx 231 MB int8)",
+    },
+    {
+        "repo": "cantillation/Teamim-tiny_Random-True_DropOut-0.1_WeightDecay-1e-06_"
+                "Augmented_date-27-06-2024_09-48-25",
+        "gated": False,
+        "fit": 2,
+        "why": "whisper-tiny, ungated - last resort, approx 36 MB int8, accuracy is poor",
+    },
+]
+
+CHOSEN = None
+
 
 def log(msg):
     try:
@@ -50,25 +98,37 @@ def download():
 
     os.makedirs(RAW, exist_ok=True)
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-    if not token:
-        log("no HF_TOKEN in the environment")
-        print("::warning::HF_TOKEN is not set, so Model/WhisperNikud cannot be fetched from the "
-              "gated checkpoint MayBog/whisper-hebrew-nikud-v1. This build has no Hebrew "
-              "recogniser model: accept the model terms at "
-              "https://huggingface.co/MayBog/whisper-hebrew-nikud-v1, create a read token and set "
-              "the repository secret HF_TOKEN. The app compiles and runs either way.", flush=True)
-        sys.exit(0)
-    log("using HF_TOKEN from the environment")
-    snapshot_download(
-        repo_id=MODEL,
-        local_dir=RAW,
-        token=token,
-        allow_patterns=["*.json", "*.txt", "model.safetensors"],
-    )
-    weights = os.path.join(RAW, "model.safetensors")
-    if not os.path.exists(weights):
-        raise SystemExit(f"[prepare_stt_nikud] {MODEL} gave no model.safetensors (gated model, token missing?)")
-    log(f"model.safetensors: {os.path.getsize(weights) / 1e6:.1f} MB")
+    if token:
+        log("using HF_TOKEN from the environment")
+    else:
+        log("no HF_TOKEN: the gated checkpoint is skipped, ungated checkpoints are used")
+        print("::warning::HF_TOKEN is not set, so the gated MayBog/whisper-hebrew-nikud-v1 "
+              "checkpoint cannot be used. This build falls back to the ungated cantillation "
+              "checkpoints listed in CANDIDATES (Tools/prepare_stt_nikud.py).", flush=True)
+
+    global CHOSEN
+    for rank, cand in enumerate(CANDIDATES, start=1):
+        repo = cand["repo"]
+        if cand.get("gated") and not token:
+            log(f"[{rank}/{len(CANDIDATES)}] {repo} - skipped (gated, no HF_TOKEN)")
+            continue
+        log(f"[{rank}/{len(CANDIDATES)}] {repo} - fit {cand['fit']}/10 - {cand['why']}")
+        try:
+            snapshot_download(repo_id=repo, local_dir=RAW, token=token,
+                              allow_patterns=["*.json", "*.txt", "model.safetensors"])
+        except Exception as exc:
+            log(f"    rejected: {type(exc).__name__}: {str(exc)[:180]}")
+            shutil.rmtree(RAW, ignore_errors=True)
+            continue
+        weights = os.path.join(RAW, "model.safetensors")
+        if not os.path.exists(weights):
+            log("    rejected: no model.safetensors in that repository")
+            shutil.rmtree(RAW, ignore_errors=True)
+            continue
+        CHOSEN = repo
+        log(f"    USING {repo}: {os.path.getsize(weights) / 1e6:.1f} MB fp32 checkpoint")
+        return
+    raise SystemExit("[prepare_stt_nikud] every candidate checkpoint was rejected")
 
 
 def convert():
@@ -112,10 +172,13 @@ def quantize():
 
 def write_meta():
     """What the Swift recognizer needs: file names and the special token ids."""
-    with open(os.path.join(RAW, "generation_config.json")) as fh:
-        gen = json.load(fh)
+    gen_path = os.path.join(RAW, "generation_config.json")
+    gen = {}
+    if os.path.exists(gen_path):
+        with open(gen_path) as fh:
+            gen = json.load(fh)
     meta = {
-        "model": MODEL,
+        "model": CHOSEN or MODEL,
         "runtime": "sherpa-onnx offline whisper",
         "encoder": "encoder_model.int8.onnx",
         "decoder": "decoder_model.int8.onnx",
@@ -135,6 +198,7 @@ def write_meta():
 def main():
     os.makedirs(OUT, exist_ok=True)
     download()
+    log(f"checkpoint in use: {CHOSEN}")
     convert()
     quantize()
     write_meta()
