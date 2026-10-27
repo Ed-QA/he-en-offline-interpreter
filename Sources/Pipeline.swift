@@ -145,7 +145,7 @@ final class Pipeline: ObservableObject {
     // MARK: - Setup
 
     init(stt: (any StreamingSTT)? = nil) {
-        self.stt = stt ?? SherpaStreamingSTT()
+        self.stt = stt ?? WhisperNikudSTT()
         // `didSet` does not run during initialisation, so the stored preferences have to be
         // pushed into the speaker and the gate explicitly. Without this a remembered voice or
         // rate only took effect after the user touched the picker again.
