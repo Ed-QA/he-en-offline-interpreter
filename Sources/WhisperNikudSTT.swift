@@ -32,32 +32,37 @@ final class WhisperNikudSTT: StreamingSTT {
 
     // MARK: - Tuning
 
-    /// Longest window handed to the model at once.
-    private static let maxWindow: TimeInterval = 12
-    /// How much new audio triggers a fresh partial transcription.
-    private static let partialStep: TimeInterval = 2.5
-    /// Audio carried across an utterance handover, so a word split by the endpoint is still heard
-    /// in full by the recogniser that transcribes it.
-    private static let handover: TimeInterval = 0.3
+    /// One recognition window: the audio a single model pass sees. The owner's scheme — a window
+    /// starts, and 1.7 s later the next one starts while the first is still running.
+    private static let window: TimeInterval = 2.0
+    /// How often a new window starts. `window - stride` is the overlap: 2.0 - 1.7 = 0.3 s.
+    private static let stride: TimeInterval = 1.7
     /// Trailing silence that closes an utterance.
     private static let endpointSilence: TimeInterval = 0.7
-    /// Audio level above which a frame counts as speech.
+    /// Audio level above which a window counts as speech. Whisper invents text out of silence, so
+    /// a window without speech is never decoded at all.
     private static let speechLevel: Float = 0.008
 
     private let input: AudioInput
     private let lock = NSLock()
+    /// Two decode lanes: window n runs on lane 0 while window n+1 runs on lane 1. Two recognisers
+    /// working in parallel, each holding its own stream over the same model.
+    private let lanes = [DispatchQueue(label: "heen.whisper.lane0", qos: .userInitiated),
+                         DispatchQueue(label: "heen.whisper.lane1", qos: .userInitiated)]
+    private var lane = 0
 
     private var recognizer: OpaquePointer?
-    private var samples: [Float] = []
+    /// Rolling audio, never longer than one window.
+    private var ring: [Float] = []
+    /// Samples collected since the last window was cut.
+    private var sinceWindow = 0
+    /// Full text of the previous window — what the clearer compares against.
+    private var lastWindowText = ""
+    /// New text of the utterance being spoken right now, cleared when it is handed over.
+    private var utterance = ""
     private var sampleRate: Double = 16_000
     private var lastSpeechAt = Date.distantPast
-    private var lastPartialLength = 0
     private var running = false
-    /// Text of the last finished utterance. The next utterance's first result is passed through
-    /// `TextUtil.dropOverlap` against it, so the 0.3 s of audio carried across the handover can
-    /// never appear twice on screen, in the translation or in the voice.
-    private var lastFinalText = ""
-    private var pendingOverlapTrim = false
 
     init(input: AudioInput = MicrophoneInput()) {
         self.input = input
@@ -113,73 +118,89 @@ final class WhisperNikudSTT: StreamingSTT {
         let level = chunk.isEmpty ? 0 : sqrt(chunk.reduce(0) { $0 + $1 * $1 } / Float(chunk.count))
         lock.lock()
         sampleRate = rate
-        samples.append(contentsOf: chunk)
+        ring.append(contentsOf: chunk)
+        sinceWindow += chunk.count
         if level > Self.speechLevel { lastSpeechAt = Date() }
-        let seconds = Double(samples.count) / rate
+        // The ring never holds more than one window. Older audio already went to a window of its
+        // own; the next window starts 1.7 s later and still finds the shared 0.3 s tail here.
+        let maxRing = Int(Self.window * rate)
+        if ring.count > maxRing { ring.removeFirst(ring.count - maxRing) }
         let sinceSpeech = Date().timeIntervalSince(lastSpeechAt)
-        // Keep the window bounded: anything older than the window is dropped, so memory and the
-        // cost of one recognition stay flat during a long monologue.
-        if seconds > Self.maxWindow {
-            let drop = Int((seconds - Self.maxWindow) * rate)
-            samples.removeFirst(min(drop, samples.count))
-        }
-        let shouldFinish = sinceSpeech > Self.endpointSilence && seconds > 1.0
-        let grew = Double(samples.count - lastPartialLength) / rate >= Self.partialStep
         silenceDuration = sinceSpeech
+        let due = Double(sinceWindow) / rate >= Self.stride
+        var window: [Float] = []
+        if due {
+            sinceWindow = 0
+            window = ring
+        }
+        let ended = sinceSpeech > Self.endpointSilence && !utterance.isEmpty
         lock.unlock()
 
-        if shouldFinish {
-            run(final: true)
-        } else if grew {
-            run(final: false)
+        if !window.isEmpty, Self.hasSpeech(window) {
+            decode(window: window, rate: rate)
+        }
+        if ended { flush() }
+    }
+
+    /// Whisper invents words out of silence, so a window without speech is never decoded.
+    private static func hasSpeech(_ window: [Float]) -> Bool {
+        let step = 160
+        var i = 0
+        while i + step <= window.count {
+            var sum: Float = 0
+            for j in i..<(i + step) { sum += window[j] * window[j] }
+            if sqrt(sum / Float(step)) > speechLevel { return true }
+            i += step
+        }
+        return false
+    }
+
+    /// One window, one model pass, on whichever lane is free. The two lanes are the two recognisers
+    /// running in parallel: window n is still decoding while window n+1 starts.
+    private func decode(window: [Float], rate: Double) {
+        lock.lock()
+        lane = (lane + 1) % lanes.count
+        let queue = lanes[lane]
+        lock.unlock()
+        queue.async { [weak self] in
+            guard let self, let recognizer = self.recognizer else { return }
+            let stream = SherpaOnnxCreateOfflineStream(recognizer)
+            SherpaOnnxAcceptWaveformOffline(stream, Int32(rate), window, Int32(window.count))
+            SherpaOnnxDecodeOfflineStream(recognizer, stream)
+            let result = SherpaOnnxGetOfflineStreamResult(stream)
+            let text = result.map { String(cString: $0.pointee.text) }?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if let result { SherpaOnnxDestroyOfflineRecognizerResult(result) }
+            SherpaOnnxDestroyOfflineStream(stream)
+            guard !text.isEmpty else { return }
+            self.take(text: text)
         }
     }
 
-    /// One pass of the model. `final` means the utterance ended: the text is reported as an
-    /// endpoint and the audio window is cleared.
-    private func run(final: Bool) {
+    /// The clearer. Only what this window added is kept: everything the previous window already
+    /// produced — the words in the shared 0.3 s — is dropped, and dropped only there.
+    private func take(text: String) {
         lock.lock()
-        guard let recognizer, !samples.isEmpty else { lock.unlock(); return }
-        let audio = samples
-        let rate = Int(sampleRate)
-        lastPartialLength = final ? 0 : audio.count
+        let previous = lastWindowText
+        lastWindowText = text
+        let fresh = previous.isEmpty ? text : TextUtil.dropOverlap(previous: previous, next: text)
+        if !fresh.isEmpty {
+            utterance = utterance.isEmpty ? fresh : utterance + " " + fresh
+        }
+        let live = utterance
         lock.unlock()
+        if !live.isEmpty { onPartial?(live) }
+    }
 
-        let stream = SherpaOnnxCreateOfflineStream(recognizer)
-        SherpaOnnxAcceptWaveformOffline(stream, Int32(rate), audio, Int32(audio.count))
-        SherpaOnnxDecodeOfflineStream(recognizer, stream)
-        let result = SherpaOnnxGetOfflineStreamResult(stream)
-        var text = result.map { String(cString: $0.pointee.text) }?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if let result { SherpaOnnxDestroyOfflineRecognizerResult(result) }
-        SherpaOnnxDestroyOfflineStream(stream)
-
-        guard !text.isEmpty else { return }
+    /// The utterance ended: hand the finished sentence over, and keep `lastWindowText` so the first
+    /// window of the next utterance is still cleared against the words that came before it.
+    private func flush() {
         lock.lock()
-        if pendingOverlapTrim {
-            let trimmed = TextUtil.dropOverlap(previous: lastFinalText, next: text)
-            if !trimmed.isEmpty {
-                text = trimmed
-                pendingOverlapTrim = false
-            }
-        }
+        let finished = utterance
+        utterance = ""
+        sinceWindow = 0
         lock.unlock()
-        if final {
-            lock.lock()
-            // Handover: keep the last 0.3 s of audio, exactly like the two-recogniser scheme —
-            // the standby became live carrying that tail. The next utterance starts from it, and
-            // `dropOverlap` above is what stops the carried words from being said twice.
-            let keep = Int(Self.handover * sampleRate)
-            samples = keep > 0 ? Array(samples.suffix(keep)) : []
-            lastPartialLength = 0
-            lastFinalText = text
-            pendingOverlapTrim = true
-            silenceDuration = .greatestFiniteMagnitude
-            lock.unlock()
-            onEndpoint?(text)
-        } else {
-            onPartial?(text)
-        }
+        if !finished.isEmpty { onEndpoint?(finished) }
     }
 
     // MARK: - StreamingSTT
@@ -190,10 +211,10 @@ final class WhisperNikudSTT: StreamingSTT {
                           userInfo: [NSLocalizedDescriptionKey: statusText])
         }
         lock.lock()
-        samples.removeAll(keepingCapacity: true)
-        lastPartialLength = 0
-        lastFinalText = ""
-        pendingOverlapTrim = false
+        ring.removeAll(keepingCapacity: true)
+        sinceWindow = 0
+        lastWindowText = ""
+        utterance = ""
         lastSpeechAt = .distantPast
         silenceDuration = .greatestFiniteMagnitude
         running = true
@@ -204,10 +225,9 @@ final class WhisperNikudSTT: StreamingSTT {
     func stop() {
         lock.lock()
         running = false
-        samples.removeAll(keepingCapacity: true)
-        lastPartialLength = 0
-        lastFinalText = ""
-        pendingOverlapTrim = false
+        ring.removeAll(keepingCapacity: true)
+        sinceWindow = 0
+        utterance = ""
         silenceDuration = .greatestFiniteMagnitude
         lock.unlock()
         input.stop()
