@@ -44,11 +44,24 @@ final class Pipeline: ObservableObject {
     /// the system's own route-change notification, so the app never guesses and never polls.
     @Published var audioRouteSummary = ""
     private var routeToken: NSObjectProtocol?
-    @Published var voiceIdentifier: String? = Prefs.voiceIdentifier ?? Speaker.defaultEnglishVoice()?.identifier {
-        didSet { speaker.voiceIdentifier = voiceIdentifier; Prefs.voiceIdentifier = voiceIdentifier }
+    /// The language the app translates into and speaks — one switch changes both. Each language
+    /// keeps its own voice and speed, so switching back restores exactly what was chosen.
+    @Published var target: TargetLanguage = Prefs.target {
+        didSet {
+            guard target != oldValue else { return }
+            Prefs.target = target
+            speaker.language = target
+            voiceIdentifier = Prefs.voice(for: target) ?? Speaker.defaultVoice(for: target)?.identifier
+            rate = Prefs.rate(for: target)
+            Task { await switchLanguage() }
+        }
     }
-    @Published var rate: Float = Prefs.rate {
-        didSet { speaker.rate = rate; Prefs.rate = rate }
+    @Published var voiceIdentifier: String? = Prefs.voice(for: Prefs.target)
+        ?? Speaker.defaultVoice(for: Prefs.target)?.identifier {
+        didSet { speaker.voiceIdentifier = voiceIdentifier; Prefs.setVoice(voiceIdentifier, for: target) }
+    }
+    @Published var rate: Float = Prefs.rate(for: Prefs.target) {
+        didSet { speaker.rate = rate; Prefs.setRate(rate, for: target) }
     }
     @Published var sttStatus = "checking…"
     @Published var engineStatus = "checking…"
@@ -159,7 +172,7 @@ final class Pipeline: ObservableObject {
     /// Back to the shipped defaults, and forget them so the next launch is a fresh install.
     func resetSettings() {
         gateMode = .balanced
-        voiceIdentifier = Speaker.defaultEnglishVoice()?.identifier
+        voiceIdentifier = Speaker.defaultVoice(for: target)?.identifier
         rate = Prefs.defaultRate
         Prefs.reset()
     }
@@ -175,13 +188,14 @@ final class Pipeline: ObservableObject {
         speaker.speak("This is how the interpreter will sound.")
     }
 
-    func prepare() async {
-        Self.resetTrace()
-        Self.trace("=== launch build \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") on \(UIDevice.current.name), iOS \(UIDevice.current.systemVersion)")
-        modelsState = .loading
-        sttStatus = stt.statusText
+    /// Picks the engine for the selected language. Apple's on-device engine is configured for
+    /// English, so Ukrainian always uses the bundled int8 model; either way only the selected
+    /// language's model is loaded.
+    func loadEngine() async {
+        engine = nil
+        engineReady = false
         var appleStatus: String?
-        if #available(iOS 18.0, *) {
+        if target == .en, #available(iOS 18.0, *) {
             let report = await AppleTranslationAvailability.check()
             appleStatus = report.statusText
             if report.canUseInstalledPack {
@@ -192,21 +206,21 @@ final class Pipeline: ObservableObject {
         }
         // The bundled int8 ONNX model is the fallback — and on iOS < 18 the only path.
         if engine == nil {
-            let missing = ONNXTranslationEngine.missingFiles()
+            let missing = ONNXTranslationEngine.missingFiles(for: target)
             if missing.isEmpty {
-                if let bundled = await ONNXTranslationEngine.shared() {
+                if let bundled = await ONNXTranslationEngine.shared(for: target) {
                     engine = bundled
                     engineReady = true
-                    engineStatus = "Bundled offline model (OPUS-MT he→en, int8)"
+                    engineStatus = "Bundled offline model (OPUS-MT he→\(target.code), int8)"
                         + (appleStatus.map { " — Apple: \($0)" } ?? "")
                     modelsState = await Self.selfTest(bundled)
                 } else {
                     let why = ONNXTranslationEngine.lastLoadError() ?? "unknown"
-                    engineStatus = "Bundled model failed to load: \(why)"
+                    engineStatus = "Bundled \(target.label) model failed to load: \(why)"
                     modelsState = .failed("load: \(why)")
                 }
             } else {
-                engineStatus = "No engine — Apple: \(appleStatus ?? "unavailable on iOS < 18")"
+                engineStatus = "No \(target.label) engine — Apple: \(appleStatus ?? "unavailable on iOS < 18")"
                     + "; bundled model missing: \(missing.joined(separator: ", "))"
                 modelsState = .failed("missing \(missing.joined(separator: ", "))")
             }
@@ -214,6 +228,24 @@ final class Pipeline: ObservableObject {
             engineStatus = "Apple on-device translation — \(appleStatus ?? "ready")"
             modelsState = .active("Apple on-device translation")
         }
+    }
+
+    /// The single switch: translation and speech change together. The new language's model is
+    /// loaded, the previous language's model is dropped, and its own voice and speed come back.
+    func switchLanguage() async {
+        ONNXTranslationEngine.keepOnly(target)
+        speaker.language = target
+        engineStatus = "switching to \(target.label)…"
+        await loadEngine()
+        Self.trace("language switched to \(target.code)")
+    }
+
+    func prepare() async {
+        Self.resetTrace()
+        Self.trace("=== launch build \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") on \(UIDevice.current.name), iOS \(UIDevice.current.systemVersion)")
+        modelsState = .loading
+        sttStatus = stt.statusText
+        await loadEngine()
         // Warm the translation graph so the first real sentence does not pay for session
         // allocation. Logged with a millisecond figure so latency is visible in live.log.
         if let engine {

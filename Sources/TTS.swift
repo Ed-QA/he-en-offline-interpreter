@@ -9,6 +9,9 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
     private var cachedVoice: AVSpeechSynthesisVoice?
     var voiceIdentifier: String? { didSet { if voiceIdentifier != oldValue { cachedVoice = nil } } }
     var rate: Float = 0.5
+    /// The language this speaker talks in. Switching language drops the cached voice, so the new
+    /// language's voice is resolved on the next sentence and the previous one is not held on to.
+    var language: TargetLanguage = .en { didSet { if language != oldValue { cachedVoice = nil } } }
     private(set) var isSpeaking = false
     var onFinish: (() -> Void)?
 
@@ -28,7 +31,7 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
                                  options: [.defaultToSpeaker, .allowBluetoothA2DP, .duckOthers])
         try? session.overrideOutputAudioPort(.speaker)
         try? session.setActive(true)
-        if cachedVoice == nil { cachedVoice = Self.voice(for: voiceIdentifier) ?? Self.defaultEnglishVoice() }
+        if cachedVoice == nil { cachedVoice = Self.voice(for: voiceIdentifier) ?? Self.defaultVoice(for: language) }
         let utterance = AVSpeechUtterance(string: trimmed)
         utterance.voice = cachedVoice
         utterance.rate = rate
@@ -45,11 +48,26 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
 
     // MARK: - Voice catalog
 
-    static func englishVoices() -> [AVSpeechSynthesisVoice] {
+    /// Installed voices for one language, in a stable order. A Ukrainian voice only exists if the
+    /// device has one installed; when it does not, iOS falls back by itself.
+    static func voices(for language: TargetLanguage) -> [AVSpeechSynthesisVoice] {
         AVSpeechSynthesisVoice.speechVoices()
-            .filter { $0.language.hasPrefix("en") }
+            .filter { $0.language.hasPrefix(language.code) }
             .sorted { ($0.language, $0.name) < ($1.language, $1.name) }
     }
+
+    /// The best installed voice for the language: premium, then enhanced, then whatever exists.
+    static func defaultVoice(for language: TargetLanguage) -> AVSpeechSynthesisVoice? {
+        let voices = voices(for: language)
+        let primary = voices.filter { $0.language.hasPrefix("\(language.code)-") }
+        return primary.first { $0.quality == .premium }
+            ?? primary.first { $0.quality == .enhanced }
+            ?? primary.first
+            ?? voices.first
+    }
+
+    /// English shortcuts for the callers that only deal with English.
+    static func englishVoices() -> [AVSpeechSynthesisVoice] { voices(for: .en) }
 
     static func voice(for identifier: String?) -> AVSpeechSynthesisVoice? {
         guard let identifier else { return nil }

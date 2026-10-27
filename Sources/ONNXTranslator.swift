@@ -48,6 +48,13 @@ final class ONNXTranslationEngine: TranslationEngine {
     }
 
     static let folderName = "Model"
+    /// Ukrainian ships in its own folder: the English model is untouched, and the Ukrainian one is
+    /// only ever opened when Ukrainian is the language selected in Settings.
+    static let folderNameUK = "Model-uk"
+
+    static func folderName(for target: TargetLanguage) -> String {
+        target == .en ? folderName : folderNameUK
+    }
 
     private let encoder: ORTSession
     private let decoder: ORTSession
@@ -64,14 +71,22 @@ final class ONNXTranslationEngine: TranslationEngine {
 
     // MARK: - Locating the bundled model
 
-    static func modelFolder() -> URL? {
+    /// Keeps only the given language's loaded model, dropping any other, so the app never holds
+    /// both languages' models at once.
+    static func keepOnly(_ target: TargetLanguage) {
+        for key in cached.keys where key != target { cached.removeValue(forKey: key) }
+    }
+
+    static func modelFolder(for target: TargetLanguage = .en) -> URL? {
         Bundle.main
-            .url(forResource: "encoder_model", withExtension: "onnx", subdirectory: folderName)?
+            .url(forResource: "encoder_model", withExtension: "onnx",
+                 subdirectory: folderName(for: target))?
             .deletingLastPathComponent()
     }
 
-    static func missingFiles() -> [String] {
-        guard let folder = modelFolder() else { return ["Model/ (folder not in bundle)"] }
+    static func missingFiles(for target: TargetLanguage = .en) -> [String] {
+        let name = folderName(for: target)
+        guard let folder = modelFolder(for: target) else { return ["\(name)/ (folder not in bundle)"] }
         let needed = ["encoder_model.onnx", "decoder_model.onnx", "tokenizer.json", "model_info.json"]
         return needed.filter {
             !FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path)
@@ -80,18 +95,20 @@ final class ONNXTranslationEngine: TranslationEngine {
 
     // MARK: - Shared instance (loading twice would double the RAM use)
 
-    private static var cached: ONNXTranslationEngine?
+    private static var cached: [TargetLanguage: ONNXTranslationEngine] = [:]
     private static var loadError: String?
 
-    static func shared() async -> ONNXTranslationEngine? {
-        if let cached { return cached }
-        guard missingFiles().isEmpty, let folder = modelFolder() else { return nil }
+    /// Loaded per language: switching to Ukrainian loads that model, and switching back drops it
+    /// again, so only the selected language's model is ever held in memory.
+    static func shared(for target: TargetLanguage = .en) async -> ONNXTranslationEngine? {
+        if let ready = cached[target] { return ready }
+        guard missingFiles(for: target).isEmpty, let folder = modelFolder(for: target) else { return nil }
         do {
             // Load off the main thread — two ORT sessions (~350 MB) take seconds.
             let engine = try await Task.detached(priority: .userInitiated) {
                 try await ONNXTranslationEngine(folder: folder)
             }.value
-            cached = engine
+            cached[target] = engine
             loadError = nil
             return engine
         } catch {

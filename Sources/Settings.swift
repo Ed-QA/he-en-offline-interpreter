@@ -14,10 +14,18 @@ struct SettingsSheet: View {
                 // the row below only *shows* what the system is really using, and it follows the
                 // system's own route-change notification. There is no app-side selector to go stale.
                 Section {
+                    // One switch for both translation and speech: the model, the voice and the
+                    // speed all follow it, and each language remembers its own voice and speed.
+                    Picker("Language", selection: $p.target) {
+                        ForEach(TargetLanguage.allCases) { lang in
+                            Text(lang.label).tag(lang)
+                        }
+                    }
+                    .accessibilityIdentifier("languagePicker")
                     LabeledContent("Audio", value: p.audioRouteSummary.isEmpty ? "—" : p.audioRouteSummary)
                         .accessibilityIdentifier("audioRouteRow")
                     Picker("Voice", selection: $p.voiceIdentifier) {
-                        ForEach(Speaker.englishVoices(), id: \.identifier) { v in
+                        ForEach(Speaker.voices(for: p.target), id: \.identifier) { v in
                             Text("\(v.name) · \(v.language) · \(Speaker.qualityLabel(v))")
                                 .tag(Optional(v.identifier))
                         }
