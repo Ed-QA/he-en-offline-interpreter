@@ -43,6 +43,16 @@ final class SherpaStreamingSTT: StreamingSTT {
     /// decoder while the finished one is reset.
     private var recognizers: [SherpaOnnxRecognizer] = []
     private var active = 0
+    /// The most recent 0.3 s of audio. At a handover it is replayed into the standby stream, so
+    /// that stream has already been listening when it becomes live — the second stream starts
+    /// recognising 0.3 s before the first one stops.
+    private var tailSamples: [Float] = []
+    private var tailRate: Double = 16_000
+    private static let handoverSeconds: Double = 0.3
+    /// What the outgoing stream had already reported; the incoming stream repeats the tail of it,
+    /// and the clearer removes those repeated words from its first result.
+    private var handoverText = ""
+    private var clearNextResult = false
     private let lock = NSLock()
     /// Decoding must not run on the audio tap thread: it made the tap miss buffers, which is the
     /// "STT stops listening and drops words" that was reported.
@@ -113,6 +123,10 @@ final class SherpaStreamingSTT: StreamingSTT {
         input.stop()
         lock.lock()
         for r in recognizers { r.reset() }
+        // A new session starts with no handover in flight and no replayed audio.
+        tailSamples = []
+        handoverText = ""
+        clearNextResult = false
         pending.removeAll()
         lastText = ""
         lock.unlock()
@@ -178,10 +192,31 @@ final class SherpaStreamingSTT: StreamingSTT {
             lock.unlock()
 
             for r in recognizers { r.acceptWaveform(samples: chunk, sampleRate: Int(rate)) }
+            // Keep the newest audio for the handover replay. The standby stream gets this the
+            // moment it becomes live, which is what makes it start 0.3 s early.
+            let keep = Int(rate * Self.handoverSeconds)
+            tailRate = rate
+            if chunk.count >= keep {
+                tailSamples = Array(chunk.suffix(keep))
+            } else {
+                tailSamples.append(contentsOf: chunk)
+                if tailSamples.count > keep { tailSamples.removeFirst(tailSamples.count - keep) }
+            }
             let activeIndex = active
             let current = recognizers[activeIndex]
             while current.isReady() { current.decode() }
-            let text = current.getResult().text
+            let raw = current.getResult().text
+            // The clearer: a stream that just took over repeats the tail of the sentence the
+            // previous stream finished with, and those repeated words are removed here — this is
+            // the overlap between the two streams, cleared before anything is shown or spoken.
+            var text = raw
+            if clearNextResult, !raw.isEmpty {
+                let cleared = TextUtil.dropOverlap(previous: handoverText, next: raw)
+                if !cleared.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    text = cleared
+                    clearNextResult = false
+                }
+            }
             let endpoint = current.isEndpoint()
 
             lock.lock()
@@ -189,14 +224,20 @@ final class SherpaStreamingSTT: StreamingSTT {
             let changed = !text.isEmpty && text != lastText
             if changed { lastText = text }
             if endpoint {
-                // Handover in one step: the finished stream is cleared while it is idle and the
-                // standby — which has been receiving the same audio all along — becomes live at
-                // exactly this utterance boundary. No sample is ever handled by a stream that is
-                // being reset, and no word is lost at the seam.
-                recognizers[activeIndex].reset()
+                // Item 1, exactly as specified: the standby stream is cleared and then fed the last
+                // 0.3 s of audio, so it has been recognising since *before* this boundary — the two
+                // streams hand over to each other at every endpoint, and no word is lost at the
+                // seam. What the incoming stream repeats from the sentence just finished is removed
+                // by the clearer on its first result.
                 let next = 1 - activeIndex
                 recognizers[next].reset()
+                if !tailSamples.isEmpty {
+                    recognizers[next].acceptWaveform(samples: tailSamples, sampleRate: Int(tailRate))
+                }
+                recognizers[activeIndex].reset()
                 active = next
+                handoverText = text
+                clearNextResult = true
                 lastText = ""
             }
             lock.unlock()
