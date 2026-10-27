@@ -24,12 +24,6 @@ protocol StreamingSTT: AnyObject {
     func restartIfNeeded(maxSeconds: TimeInterval)
 }
 
-extension StreamingSTT {
-    /// Item 10: only the real recogniser owns an audio session to steer — a scripted one in a
-    /// test ignores the choice.
-    func applyInputChoice(_ choice: AudioEndpoint, output: AudioEndpoint) {}
-}
-
 /// Offline streaming Hebrew ASR: sherpa-onnx + a 66M-parameter Zipformer2 transducer
 /// (ivrit-ai/zipformer2-66m-streaming-he, int8, ~72 MB, CC-BY-4.0).
 ///
@@ -134,12 +128,6 @@ final class SherpaStreamingSTT: StreamingSTT {
         if recognizers.count == 2 { recognizers[1 - active].reset() }
         lock.unlock()
         startedAt = Date()
-    }
-
-    /// Item 10: applies the chosen microphone and output to the live audio session.
-    func applyInputChoice(_ choice: AudioEndpoint, output: AudioEndpoint) {
-        (input as? MicrophoneInput)?.preferredInput = choice
-        (input as? MicrophoneInput)?.preferredOutput = output
     }
 
     var silenceDuration: TimeInterval {

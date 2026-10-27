@@ -42,6 +42,9 @@ extension Pipeline {
         lastEmitted = ""
         accumulated = ""
         pendingSince = nil
+        // The next utterance may legitimately say the same words again, so the duplicate guard
+        // belongs to this utterance only.
+        lastQueuedSentence = ""
         // The anti-repeat memory belongs to this utterance only.
         lastSpokenEnglish = ""
         lastSpokenHebrew = ""
@@ -68,6 +71,10 @@ extension Pipeline {
     func emit(_ text: String, forced: Bool, isFinal: Bool = false) {
         let sentence = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sentence.isEmpty else { return }
+        // One sentence is queued once per utterance: a forced emit followed by the real endpoint
+        // used to push the same text through translation, TTS and the Hebrew panel twice.
+        if sentence == lastQueuedSentence { return }
+        lastQueuedSentence = sentence
         // Item 5 (critical): never queue a word twice. Everything already queued or spoken for
         // this utterance is stripped, so a growing forced emit only ever speaks the new tail.
         let fresh = Self.removePrefix(sentence, prefix: spokenHebrew)
@@ -129,7 +136,7 @@ extension Pipeline {
         // Item 4 (priority 1): nikud is applied straight after STT — before anything is translated.
         // Item 3: the pointed sentence is *appended* to the Hebrew transcript, so the panel fills
         // and scrolls like the English one instead of being blanked on every sentence.
-        if !pointed.isEmpty, hebrewText != pointed {
+        if !pointed.isEmpty, !hebrewText.hasSuffix(pointed) {
             if !hebrewText.isEmpty { hebrewText += " " }
             hebrewText += pointed
         }

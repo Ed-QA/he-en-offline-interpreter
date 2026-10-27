@@ -40,17 +40,10 @@ final class Pipeline: ObservableObject {
     @Published var gateMode: GateMode = Prefs.gateMode {
         didSet { gate.mode = gateMode; Prefs.gateMode = gateMode }
     }
-    /// Item 10: which physical input/output to use, and whether each is currently available.
-    /// Availability is re-checked continuously so a choice that is no longer possible (earplugs
-    /// unplugged) greys out instead of silently doing nothing.
-    @Published var micChoice: AudioEndpoint = Prefs.micChoice {
-        didSet { Prefs.micChoice = micChoice; applyAudioRoute() }
-    }
-    @Published var outputChoice: AudioEndpoint = Prefs.outputChoice {
-        didSet { Prefs.outputChoice = outputChoice; applyAudioRoute() }
-    }
-    @Published var micAvailable = true
-    @Published var outputAvailable = true
+    /// What iOS is really using for sound right now. It is read from the session and refreshed by
+    /// the system's own route-change notification, so the app never guesses and never polls.
+    @Published var audioRouteSummary = ""
+    private var routeToken: NSObjectProtocol?
     @Published var voiceIdentifier: String? = Prefs.voiceIdentifier ?? Speaker.defaultEnglishVoice()?.identifier {
         didSet { speaker.voiceIdentifier = voiceIdentifier; Prefs.voiceIdentifier = voiceIdentifier }
     }
@@ -106,6 +99,10 @@ final class Pipeline: ObservableObject {
     var lastSpokenHebrew = ""
     /// When the head of the speech queue was queued - used to log emit→speak latency.
     var pendingSpeechAt: Date?
+    /// Last sentence that was actually queued for translation (unpointed). A forced emit is
+    /// followed by the real endpoint, and the same sentence used to be queued twice — it appeared
+    /// twice in the Hebrew panel, twice in English and was spoken twice.
+    var lastQueuedSentence = ""
 
     /// Used by the SwiftUI anchor view (iOS 18+). Stored type-erased because Swift
     /// forbids `@available` on stored properties; the typed accessor below is gated.
@@ -146,21 +143,17 @@ final class Pipeline: ObservableObject {
         gate.mode = gateMode
         speaker.voiceIdentifier = voiceIdentifier
         speaker.rate = rate
-        refreshAudioRoutes()
-        applyAudioRoute()
+        observeAudioRoute()
     }
 
-    /// Item 10: re-reads what the system currently offers, so an impossible choice can grey out.
-    func refreshAudioRoutes() {
-        micAvailable = AudioRoute.isAvailable(micChoice, input: true)
-        outputAvailable = AudioRoute.isAvailable(outputChoice, input: false)
-    }
-
-    /// Item 10: hands the chosen input/output to the audio session and to the running microphone.
-    func applyAudioRoute() {
-        AudioRoute.applyInput(micChoice)
-        AudioRoute.applyOutput(outputChoice)
-        stt.applyInputChoice(micChoice, output: outputChoice)
+    /// Item 10, done the native way: the app asks iOS what the route is and lets iOS change it.
+    /// The system's `routeChangeNotification` keeps the displayed route honest.
+    func observeAudioRoute() {
+        audioRouteSummary = AudioRoute.summary()
+        guard routeToken == nil else { return }
+        routeToken = AudioRoute.observe { [weak self] in
+            self?.audioRouteSummary = AudioRoute.summary()
+        }
     }
 
     /// Back to the shipped defaults, and forget them so the next launch is a fresh install.

@@ -1,74 +1,46 @@
 import Foundation
 import AVFoundation
 
-/// Item 10: the two places sound can come from and go to — the phone itself, or the earplugs.
-/// Every choice is checked against what the system actually offers right now, so a selector can
-/// be greyed out when the earplugs are not connected instead of silently doing nothing.
-enum AudioEndpoint: String, CaseIterable, Identifiable {
-    case phone
-    case earbuds
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .phone: return "Phone"
-        case .earbuds: return "Earplugs"
-        }
-    }
-}
-
+/// Audio routing is left to iOS — the system already sends sound to the earbuds when they are
+/// connected and back to the phone when they are not, and it tells the app when that changes.
+/// This type therefore only *reports* what the system chose and follows the system's own
+/// route-change notification. No invented availability heuristics, no polling, no guessing.
 enum AudioRoute {
 
-    /// Ports that count as "earplugs" for input and output.
-    private static let inputPorts: Set<AVAudioSession.Port> = [
-        .headsetMic, .bluetoothHFP, .bluetoothLE, .lineIn, .usbAudio, .carAudio,
-    ]
-    private static let outputPorts: Set<AVAudioSession.Port> = [
-        .headphones, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .usbAudio, .carAudio,
-    ]
-
-    static func isAvailable(_ endpoint: AudioEndpoint, input: Bool) -> Bool {
+    /// The route iOS is using right now, straight from the session.
+    static func summary() -> String {
         let session = AVAudioSession.sharedInstance()
-        switch endpoint {
-        case .phone:
-            // The built-in mic and speaker are always there.
-            return true
-        case .earbuds:
-            if input {
-                let wired = session.availableInputs?.contains { inputPorts.contains($0.portType) } ?? false
-                let routed = session.currentRoute.inputs.contains { inputPorts.contains($0.portType) }
-                return wired || routed
-            }
-            let routed = session.currentRoute.outputs.contains { outputPorts.contains($0.portType) }
-            let possible = session.availableInputs?.contains { inputPorts.contains($0.portType) } ?? false
-            return routed || possible
+        let input = session.currentRoute.inputs.first?.portName ?? "—"
+        let output = session.currentRoute.outputs.first?.portName ?? "—"
+        return "\(input) → \(output)"
+    }
+
+    /// True when the system is playing through something other than the phone itself.
+    static func isExternal() -> Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains {
+            $0.portType != .builtInSpeaker && $0.portType != .builtInReceiver
         }
     }
 
-    /// Routes the microphone: `setPreferredInput` picks the earplugs' mic, `nil` goes back to the
-    /// phone's own microphone.
-    static func applyInput(_ endpoint: AudioEndpoint) {
-        let session = AVAudioSession.sharedInstance()
-        switch endpoint {
-        case .phone:
-            try? session.setPreferredInput(nil)
-        case .earbuds:
-            guard let port = session.availableInputs?.first(where: { inputPorts.contains($0.portType) })
-            else { return }
-            try? session.setPreferredInput(port)
-        }
+    /// The system's own notification — the UI follows this instead of polling a timer.
+    static func observe(_ handler: @escaping () -> Void) -> NSObjectProtocol {
+        NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification,
+                                               object: nil, queue: .main) { _ in handler() }
     }
 
-    /// Routes the output: the phone plays through its own speaker, the earplugs take the audio
-    /// through whatever is connected.
-    static func applyOutput(_ endpoint: AudioEndpoint) {
-        let session = AVAudioSession.sharedInstance()
-        switch endpoint {
-        case .phone:
-            try? session.overrideOutputAudioPort(.speaker)
-        case .earbuds:
-            try? session.overrideOutputAudioPort(.none)
-        }
+    static func stopObserving(_ token: NSObjectProtocol) {
+        NotificationCenter.default.removeObserver(token)
+    }
+
+    /// Documented API for "play through the phone's speaker". The system still overrides it the
+    /// moment the user plugs earbuds in, which is exactly the native behaviour.
+    static func usePhoneSpeaker() {
+        try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+    }
+
+    /// Hand routing back to the system (the native default).
+    static func followSystem() {
+        try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.none)
     }
 }
+

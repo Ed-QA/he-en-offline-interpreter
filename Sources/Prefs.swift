@@ -6,19 +6,6 @@ enum Prefs {
     static let voiceKey = "heen.voiceIdentifier"
     static let rateKey = "heen.rate"
     static let gateKey = "heen.gateMode"
-    static let micKey = "heen.micChoice"
-    static let outputKey = "heen.outputChoice"
-
-    /// Item 10: the remembered input/output choice. `AudioEndpoint` lives in AudioRoute.swift.
-    static var micChoice: AudioEndpoint {
-        get { AudioEndpoint(rawValue: store.string(forKey: micKey) ?? "") ?? .phone }
-        set { store.set(newValue.rawValue, forKey: micKey) }
-    }
-
-    static var outputChoice: AudioEndpoint {
-        get { AudioEndpoint(rawValue: store.string(forKey: outputKey) ?? "") ?? .phone }
-        set { store.set(newValue.rawValue, forKey: outputKey) }
-    }
 
     static let defaultRate: Float = 0.5
     static let rateRange: ClosedRange<Float> = 0.35...0.65

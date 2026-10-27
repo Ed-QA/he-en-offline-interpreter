@@ -10,23 +10,12 @@ struct SettingsSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Item 9: three blocks only — voice (with the item 10 input/output selectors),
-                // chunking, and Send logs. Every explanatory text and the title are gone.
+                // Item 9: three blocks only — voice, chunking, and Send logs. Routing is iOS's job:
+                // the row below only *shows* what the system is really using, and it follows the
+                // system's own route-change notification. There is no app-side selector to go stale.
                 Section {
-                    Picker("Input", selection: $p.micChoice) {
-                        ForEach(AudioEndpoint.allCases) { e in
-                            Text(e.label).tag(e)
-                        }
-                    }
-                    .disabled(!p.micAvailable)
-                    .accessibilityIdentifier("micPicker")
-                    Picker("Output", selection: $p.outputChoice) {
-                        ForEach(AudioEndpoint.allCases) { e in
-                            Text(e.label).tag(e)
-                        }
-                    }
-                    .disabled(!p.outputAvailable)
-                    .accessibilityIdentifier("outputPicker")
+                    LabeledContent("Audio", value: p.audioRouteSummary.isEmpty ? "—" : p.audioRouteSummary)
+                        .accessibilityIdentifier("audioRouteRow")
                     Picker("Voice", selection: $p.voiceIdentifier) {
                         ForEach(Speaker.englishVoices(), id: \.identifier) { v in
                             Text("\(v.name) · \(v.language) · \(Speaker.qualityLabel(v))")
@@ -86,13 +75,9 @@ struct SettingsSheet: View {
             // The report is written when the sheet opens, so "Send logs" always shares a fresh file.
             .task {
                 reportURL = p.writeLogFile()
-                p.refreshAudioRoutes()
-                // Item 10: availability is re-checked while the sheet is open, so unplugging the
-                // earplugs greys the choice out right away.
-                while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
-                    p.refreshAudioRoutes()
-                }
+                // Native routing: the displayed route comes from the session and is refreshed by
+                // the system's route-change notification — no polling loop.
+                p.observeAudioRoute()
             }
         }
     }

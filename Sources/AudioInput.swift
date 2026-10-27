@@ -17,14 +17,8 @@ final class MicrophoneInput: AudioInput {
     private var tapInstalled = false
     var onSamples: (([Float], Double) -> Void)?
 
-    /// Item 10: the chosen input/output. Changing either while live switches immediately.
-    var preferredInput: AudioEndpoint = .phone {
-        didSet { if engine.isRunning { AudioRoute.applyInput(preferredInput) } }
-    }
-    var preferredOutput: AudioEndpoint = .phone {
-        didSet { if engine.isRunning { AudioRoute.applyOutput(preferredOutput) } }
-    }
-
+    /// Routing is the system's job: iOS already uses the earbuds when they are connected and the
+    /// phone's own mic and speaker when they are not. The app only follows that.
     var describe: String { "microphone" }
 
     func start() throws {
@@ -34,9 +28,6 @@ final class MicrophoneInput: AudioInput {
         try session.setCategory(.playAndRecord, mode: .default,
                                 options: [.defaultToSpeaker, .allowBluetoothA2DP, .duckOthers])
         try session.setActive(true, options: .notifyOthersOnDeactivation)
-        // Item 10: the user's choice decides where the mic listens and where the English comes out.
-        AudioRoute.applyInput(preferredInput)
-        AudioRoute.applyOutput(preferredOutput)
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
