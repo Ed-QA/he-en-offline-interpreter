@@ -31,7 +31,7 @@ jobs:
         # tested now and the model joins the bundle the moment the token exists.
         run: |
           python -m pip install --quiet --upgrade pip
-          python -m pip install --quiet "transformers==4.46.3" "torch==2.5.1" "onnx==1.17.0" "onnxruntime==1.20.1" "sentencepiece==0.2.0" sherpa-onnx huggingface_hub
+          python -m pip install --quiet "transformers==4.46.3" "torch==2.5.1" "onnx==1.17.0" "onnxruntime==1.20.1" "sentencepiece==0.2.0" "optimum[exporters]==1.24.0" huggingface_hub
           python Tools/prepare_stt_nikud.py
           ls -lh Model/WhisperNikud || true
         env:

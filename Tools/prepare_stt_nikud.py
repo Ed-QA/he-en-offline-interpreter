@@ -26,7 +26,7 @@ import urllib.request
 MODEL = "MayBog/whisper-hebrew-nikud-v1"
 OUT = "Model/WhisperNikud"
 RAW = "whisper_nikud_raw"
-CONVERTER = "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/scripts/whisper/convert.py"
+CONVERTER = "https://raw.githubusercontent.com/openai/whisper/main/whisper/assets/multilingual.tiktoken"
 
 WANTED = ["encoder_model.onnx", "decoder_model.onnx", "tokens.txt"]
 
@@ -132,22 +132,45 @@ def download():
 
 
 def convert():
-    """PyTorch -> ONNX with sherpa-onnx's own converter (the layout the runtime expects)."""
+    """PyTorch -> ONNX in the layout sherpa-onnx's offline Whisper runtime reads.
+
+    Exported with optimum (the same exporter the translation models already go through in this
+    project), then tokens.txt is written from Whisper's own multilingual tiktoken vocabulary:
+    lines of `<token> <id>`, the exact file and format the runtime expects beside
+    encoder_model.onnx and decoder_model.onnx.
+    """
     if os.path.exists(os.path.join(OUT, "encoder_model.onnx")) and \
        os.path.exists(os.path.join(OUT, "decoder_model.onnx")):
         log("ONNX models already exported")
-        return
-    if not os.path.exists("convert_whisper.py"):
-        log("fetching sherpa-onnx whisper converter")
-        urllib.request.urlretrieve(CONVERTER, "convert_whisper.py")
-    os.makedirs(OUT, exist_ok=True)
-    cmd = [sys.executable, "convert_whisper.py",
-           "--model", RAW,
-           "--output-dir", OUT,
-           "--model-type", "whisper",
-           "--add-model-metadata", "0"]
-    log("running: " + " ".join(cmd))
-    subprocess.run(cmd, check=True)
+    else:
+        os.makedirs(OUT, exist_ok=True)
+        cmd = [sys.executable, "-m", "optimum.exporters.onnx",
+               "--model", RAW,
+               "--task", "automatic-speech-recognition",
+               "--opset", "17",
+               "--no-post-process",
+               OUT]
+        log("running: " + " ".join(cmd))
+        subprocess.run(cmd, check=True)
+        # The cached-decoder variant is not used by sherpa-onnx and doubles the bundle.
+        past = os.path.join(OUT, "decoder_with_past_model.onnx")
+        if os.path.exists(past):
+            os.remove(past)
+            log("removed decoder_with_past_model.onnx (not used by the runtime)")
+
+    tokens_path = os.path.join(OUT, "tokens.txt")
+    if not os.path.exists(tokens_path) or os.path.getsize(tokens_path) == 0:
+        tiktoken_path = os.path.join(RAW, "multilingual.tiktoken")
+        if not os.path.exists(tiktoken_path):
+            log("fetching whisper multilingual.tiktoken")
+            urllib.request.urlretrieve(CONVERTER, tiktoken_path)
+        with open(tiktoken_path, "r", encoding="utf-8") as fh:
+            lines = [line for line in fh.read().splitlines() if line.strip()]
+        with open(tokens_path, "w", encoding="utf-8") as fh:
+            for line in lines:
+                fh.write(line.strip() + "\n")
+        log(f"tokens.txt: {len(lines)} tokens")
+
     for name in WANTED:
         path = os.path.join(OUT, name)
         if not os.path.exists(path):

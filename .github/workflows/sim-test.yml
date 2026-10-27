@@ -37,7 +37,7 @@ jobs:
         # recognizer: the post-hoc diacritizer was deleted.
         run: |
           python -m pip install --quiet --upgrade pip
-          python -m pip install --quiet "transformers==4.46.3" "torch==2.5.1" "onnx==1.17.0" "onnxruntime==1.20.1" "sentencepiece==0.2.0" sherpa-onnx
+          python -m pip install --quiet "transformers==4.46.3" "torch==2.5.1" "onnx==1.17.0" "onnxruntime==1.20.1" "sentencepiece==0.2.0" "optimum[exporters]==1.24.0" huggingface_hub
           python Tools/prepare_stt_nikud.py
       - name: Fetch nikud diacritizer + Silero VAD
         # Always runs: an older cache may predate these files, and prepare_nikud.py skips
