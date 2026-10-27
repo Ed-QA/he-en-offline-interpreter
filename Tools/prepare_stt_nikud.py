@@ -192,6 +192,15 @@ def quantize():
         log(f"  {os.path.getsize(src) / 1e6:.1f} MB fp32 -> "
             f"{os.path.getsize(dst) / 1e6:.1f} MB int8 in {time.time() - t0:.0f}s")
 
+    # The fp32 exports exist only as input to quantization. Leaving them in Model/ put ~3 GB of
+    # dead weight into the app bundle and into every IPA — they are deleted the moment int8 exists.
+    for name in sorted(os.listdir(OUT)):
+        if name.endswith(".onnx") and not name.endswith(".int8.onnx"):
+            path = os.path.join(OUT, name)
+            size = os.path.getsize(path) / 1e6
+            os.remove(path)
+            log(f"removed fp32 {name} ({size:.1f} MB) - only int8 ships")
+
 
 def write_meta():
     """What the Swift recognizer needs: file names and the special token ids."""

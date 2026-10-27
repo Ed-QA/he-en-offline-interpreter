@@ -64,6 +64,9 @@ jobs:
           name: HEENInterpreter-ipa
           path: HEENInterpreter.ipa
       - name: Publish release with IPA
+        # A convenience copy of the same artifact. If the release API refuses (tag already used,
+        # token scope), the build must not fail: the artifact above is the deliverable.
+        continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
