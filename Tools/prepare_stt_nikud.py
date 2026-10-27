@@ -39,22 +39,31 @@ def log(msg):
 
 
 def download():
-    """Fetch the checkpoint, tokenizer and configs into RAW (skips what is already there)."""
+    """Fetch the checkpoint, tokenizer and configs into RAW.
+
+    The checkpoint is **gated** (`MayBog/whisper-hebrew-nikud-v1`, `gated: manual`): Hugging Face
+    answers 401 until a token whose owner has accepted the model's terms is presented. The token is
+    read from HF_TOKEN / HUGGING_FACE_HUB_TOKEN and is never written to disk. Downloads go through
+    huggingface_hub so shards, LFS and retries are its problem, not ours.
+    """
+    from huggingface_hub import snapshot_download
+
     os.makedirs(RAW, exist_ok=True)
-    files = ["config.json", "generation_config.json", "preprocessor_config.json",
-             "tokenizer.json", "tokenizer_config.json", "vocab.json", "merges.txt",
-             "special_tokens_map.json", "added_tokens.json", "normalizer.json",
-             "model.safetensors"]
-    for name in files:
-        dst = os.path.join(RAW, name)
-        if os.path.exists(dst) and os.path.getsize(dst) > 0:
-            log(f"{name} already downloaded")
-            continue
-        url = f"https://huggingface.co/{MODEL}/resolve/main/{name}"
-        log(f"downloading {name}")
-        t0 = time.time()
-        urllib.request.urlretrieve(url, dst)
-        log(f"  {os.path.getsize(dst) / 1e6:.1f} MB in {time.time() - t0:.0f}s")
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if token:
+        log("using HF_TOKEN from the environment")
+    else:
+        log("no HF_TOKEN in the environment - anonymous download, which the gated repo rejects")
+    snapshot_download(
+        repo_id=MODEL,
+        local_dir=RAW,
+        token=token,
+        allow_patterns=["*.json", "*.txt", "model.safetensors"],
+    )
+    weights = os.path.join(RAW, "model.safetensors")
+    if not os.path.exists(weights):
+        raise SystemExit(f"[prepare_stt_nikud] {MODEL} gave no model.safetensors (gated model, token missing?)")
+    log(f"model.safetensors: {os.path.getsize(weights) / 1e6:.1f} MB")
 
 
 def convert():
