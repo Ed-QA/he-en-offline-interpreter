@@ -18,7 +18,7 @@ jobs:
           path: |
             Model
             Model-uk
-          key: models-v2-${{ hashFiles('Tools/prepare_model.py', 'Tools/prepare_stt.py') }}
+          key: models-v3-${{ hashFiles('Tools/prepare_model.py', 'Tools/prepare_stt.py', 'Tools/prepare_stt_nikud.py') }}
       - name: Prepare offline translation model (only on cache miss)
         if: steps.model-cache.outputs.cache-hit != 'true'
         run: |
@@ -30,6 +30,13 @@ jobs:
         run: |
           python -m pip install --quiet huggingface_hub
           python Tools/prepare_stt.py
+      - name: Prepare Hebrew ASR with nikud (Whisper-Nikudon, int8)
+        # The recognizer that emits pointed Hebrew straight from the audio. It is the app's only
+        # recognizer: the post-hoc diacritizer was deleted.
+        run: |
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet "transformers==4.46.3" "torch==2.5.1" "onnx==1.17.0" "onnxruntime==1.20.1" "sentencepiece==0.2.0" sherpa-onnx
+          python Tools/prepare_stt_nikud.py
       - name: Fetch nikud diacritizer + Silero VAD
         # Always runs: an older cache may predate these files, and prepare_nikud.py skips
         # whatever is already there (so a warm cache costs one no-op).
