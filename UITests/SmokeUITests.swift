@@ -69,17 +69,16 @@ final class SmokeUITests: XCTestCase {
         // proven to render instead of being silently clipped. The dark-mode run uses large
         // accessibility text, which makes the form taller still, so keep scrolling until the
         // footer exists rather than assuming a fixed number of swipes.
-        let footer = app.staticTexts
-            .containing(NSPredicate(format: "label CONTAINS %@", "Total offline"))
-            .firstMatch
+        // Item 9 removed the offline footer, so the last row of the form is now "Send logs".
+        let lastRow = app.staticTexts["Send logs"].firstMatch
         app.swipeUp()
         attachScreenshot(app, named: "03-settings-mid")
-        for _ in 0..<6 where !footer.exists {
+        for _ in 0..<6 where !lastRow.exists {
             app.swipeUp()
         }
         attachScreenshot(app, named: "04-settings-bottom")
-        XCTAssertTrue(footer.exists,
-                      "the offline footer is missing — the form is clipped or a section failed to render")
+        XCTAssertTrue(lastRow.exists,
+                      "the Send logs row is missing — the form is clipped or a section failed to render")
 
         app.navigationBars.buttons["Close"].firstMatch.tap()
         XCTAssertTrue(app.buttons["Log"].firstMatch.waitForExistence(timeout: 20), "settings did not close")

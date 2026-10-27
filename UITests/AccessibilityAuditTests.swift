@@ -131,7 +131,8 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(mic.frame.height, 44, "the mic button is shorter than 44 pt")
         XCTAssertTrue(window.contains(mic.frame), "the mic button is outside the screen")
 
-        for label in ["Repeat last sentence", "Log", "Settings"] {
+        // Item 7 deleted the repeat (curved-arrow) button, so the row is Log, Settings and the light.
+        for label in ["Log", "Settings"] {
             let button = app.buttons[label]
             XCTAssertTrue(button.exists, "\(label) is not exposed to VoiceOver")
             XCTAssertGreaterThanOrEqual(button.frame.width, 44, "\(label) is narrower than 44 pt")
