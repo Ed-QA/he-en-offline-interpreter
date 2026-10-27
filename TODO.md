@@ -107,5 +107,22 @@ failure messages out of the result bundle):
 11. **Start/Stop button: make it wide** — fill the available space in the bottom row (same row as
     Settings and the LED).
 
+## Priority 0 — STT that outputs Hebrew with nikud (found 2026-10-26)
+
+- **Candidate: `MayBog/whisper-hebrew-nikud-v1`** (Nikudon project, MaayanBogin). Its own words:
+  *"directly transcribes Hebrew speech to text with full diacritical marks (niqqud) in a single
+  step, eliminating the traditional two-step pipeline of transcription followed by nikud
+  restoration."* Base model: **ivrit-ai/whisper-large-v3-turbo** (the strongest Hebrew ASR there
+  is), i.e. Whisper large-v3-turbo, 809M params, `model.safetensors` = 3.09 GB fp32 → ~0.8 GB int8.
+- Alternatives checked: `cantillation/whisper-medium-he-teamim-*-Nikud` (WER 37 %, Torah cantillation
+  — unusable for conversation), `notmax123/nikud_exps_renikud` (experiment, 0 downloads). **No
+  streaming Hebrew ASR with nikud exists** — the Nikudon roadmap lists "smaller whisper for faster
+  streaming" as still open.
+- Consequences of the swap: recognition becomes **offline/chunked** (VAD-segmented Whisper), so the
+  live word-by-word text and the dual-stream STT design change; app grows ~+0.5 GB net (drop the
+  293 MB phonikud diacritizer); per-utterance latency goes from ~0.3 s to seconds.
+- Status: candidate identified and evidenced; swap not started — needs the size/latency trade-off
+  accepted (or an HF token if the repo turns out to be gated).
+
 ## Open
 - [ ] Retire the pinned contrast expectation (`XCTExpectFailure`) after a light-mode visual check
