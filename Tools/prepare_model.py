@@ -17,14 +17,35 @@ import os
 import shutil
 import time
 
-MODEL = "Helsinki-NLP/opus-mt-tc-big-he-en"
-OUT = "Model"
-RAW = "onnx_raw"
-
-SAMPLES = [
-    "אני לומד עברית כל יום עם חברים שלי.",
-    "היא אמרה לי שהיא תחזור הביתה מאוחר היום.",
+# Two language pairs ship: Hebrew → English (the original) and Hebrew → Ukrainian. Each pair is
+# exported, quantized and self-tested the same way, into its own folder, so the app only reads the
+# Ukrainian model when Ukrainian is the language selected in Settings.
+PAIRS = [
+    {
+        "model": "Helsinki-NLP/opus-mt-tc-big-he-en",
+        "out": "Model",
+        "raw": "onnx_raw",
+        "samples": [
+            "אני לומד עברית כל יום עם חברים שלי.",
+            "היא אמרה לי שהיא תחזור הביתה מאוחר היום.",
+        ],
+    },
+    {
+        "model": "Helsinki-NLP/opus-mt-he-uk",
+        "out": "Model-uk",
+        "raw": "onnx_raw_uk",
+        "samples": [
+            "אני לומד עברית כל יום עם חברים שלי.",
+            "היא אמרה לי שהיא תחזור הביתה מאוחר היום.",
+        ],
+    },
 ]
+
+# The pair currently being prepared — run_pair() sets these, the helpers below read them.
+MODEL = PAIRS[0]["model"]
+OUT = PAIRS[0]["out"]
+RAW = PAIRS[0]["raw"]
+SAMPLES = PAIRS[0]["samples"]
 
 # Files the app bundle needs (name -> source in RAW)
 WANTED = ["encoder_model.onnx", "decoder_model.onnx"]
@@ -282,7 +303,11 @@ def write_meta(enc, dec, decoder_start, eos, max_new):
     log("model_info.json: " + json.dumps(meta, indent=1))
 
 
-def main():
+def run_pair(pair):
+    """Export, quantize and self-test one language pair into its own folder."""
+    global MODEL, OUT, RAW, SAMPLES
+    MODEL, OUT, RAW, SAMPLES = pair["model"], pair["out"], pair["raw"], pair["samples"]
+    log(f"=== {MODEL} -> {OUT} ===")
     os.makedirs(OUT, exist_ok=True)
     export_onnx()
     quantize()
@@ -308,6 +333,11 @@ def main():
 
     total = sum(os.path.getsize(os.path.join(OUT, f)) for f in os.listdir(OUT))
     log(f"{OUT}: {total / 1e6:.1f} MB — {sorted(os.listdir(OUT))}")
+
+
+def main():
+    for pair in PAIRS:
+        run_pair(pair)
 
 
 if __name__ == "__main__":

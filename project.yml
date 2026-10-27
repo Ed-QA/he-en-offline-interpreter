@@ -44,6 +44,8 @@ targets:
       - Sources
       - path: Model
         type: folder
+      - path: Model-uk
+        type: folder
     dependencies:
       - package: onnxruntime-libs
         product: onnxruntime-ios-shared
