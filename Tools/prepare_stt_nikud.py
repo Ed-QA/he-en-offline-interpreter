@@ -201,6 +201,27 @@ def quantize():
             os.remove(path)
             log(f"removed fp32 {name} ({size:.1f} MB) - only int8 ships")
 
+    # ONNX splits a fp32 export larger than 2 GB into a sidecar named `<model>.onnx_data`, which the
+    # loop above never matches: that is why 2.5 GB of fp32 encoder weights used to ship inside the
+    # app while the runtime only opens encoder_model.int8.onnx. The int8 file is self-contained, but
+    # that is checked here instead of assumed — if the int8 encoder still pointed at the sidecar,
+    # deleting it would leave the recogniser unable to load at all.
+    sidecar = os.path.join(OUT, "encoder_model.onnx_data")
+    if os.path.exists(sidecar):
+        if uses_external_data(os.path.join(OUT, "encoder_model.int8.onnx")):
+            log("encoder_model.int8.onnx still references external data - sidecar kept")
+        else:
+            size = os.path.getsize(sidecar) / 1e6
+            os.remove(sidecar)
+            log(f"removed fp32 encoder_model.onnx_data ({size:.1f} MB) - only int8 ships")
+
+
+def uses_external_data(path):
+    """True when an ONNX file still points at a `<name>.onnx_data` sidecar beside it."""
+    import onnx
+    model = onnx.load(path, load_external_data=False)
+    return any(i.data_location == onnx.TensorProto.EXTERNAL for i in model.graph.initializer)
+
 
 def write_meta():
     """What the Swift recognizer needs: file names and the special token ids."""
