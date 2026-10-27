@@ -13,8 +13,8 @@ final class ShareLogsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-HEENUITest"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["statusTitle"].waitForExistence(timeout: 90),
-                      "the status light never appeared")
+        XCTAssertTrue(app.buttons["mainToggle"].waitForExistence(timeout: 90),
+                      "the start/stop control never appeared")
         return app
     }
 

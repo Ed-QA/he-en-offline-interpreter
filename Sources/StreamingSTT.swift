@@ -24,6 +24,12 @@ protocol StreamingSTT: AnyObject {
     func restartIfNeeded(maxSeconds: TimeInterval)
 }
 
+extension StreamingSTT {
+    /// Item 10: only the real recogniser owns an audio session to steer — a scripted one in a
+    /// test ignores the choice.
+    func applyInputChoice(_ choice: AudioEndpoint, output: AudioEndpoint) {}
+}
+
 /// Offline streaming Hebrew ASR: sherpa-onnx + a 66M-parameter Zipformer2 transducer
 /// (ivrit-ai/zipformer2-66m-streaming-he, int8, ~72 MB, CC-BY-4.0).
 ///
@@ -38,8 +44,18 @@ final class SherpaStreamingSTT: StreamingSTT {
     static let requiredFiles = ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]
 
     private let input: AudioInput
-    private var recognizer: SherpaOnnxRecognizer?
+    /// Two identical streams (item 1). Both are fed every sample; only the active one decodes.
+    /// At an endpoint the other takes over, so the microphone is never left without a live
+    /// decoder while the finished one is reset.
+    private var recognizers: [SherpaOnnxRecognizer] = []
+    private var active = 0
     private let lock = NSLock()
+    /// Decoding must not run on the audio tap thread: it made the tap miss buffers, which is the
+    /// "STT stops listening and drops words" that was reported.
+    private let decodeQueue = DispatchQueue(label: "heen.stt.decode")
+    private var pending: [Float] = []
+    private var pendingRate: Double = 16_000
+    private var draining = false
     private var lastVoiceTime = Date.distantPast
     private var lastText = ""
     private var startedAt = Date()
@@ -77,18 +93,18 @@ final class SherpaStreamingSTT: StreamingSTT {
     init(input: AudioInput = MicrophoneInput()) {
         self.input = input
         self.input.onSamples = { [weak self] samples, rate in
-            self?.accept(samples, sampleRate: rate)
+            self?.enqueue(samples, sampleRate: rate)
         }
     }
 
     func start() throws {
-        if recognizer == nil {
+        if recognizers.isEmpty {
             let began = Date()
-            recognizer = Self.makeRecognizer()
+            recognizers = [Self.makeRecognizer(), Self.makeRecognizer()].compactMap { $0 }
             loadNote = "loaded in \(Int(Date().timeIntervalSince(began) * 1000)) ms"
-            Pipeline.trace("STT engine ready: \(statusText)")
+            Pipeline.trace("STT engine ready (2 streams): \(statusText)")
         }
-        guard recognizer != nil else {
+        guard !recognizers.isEmpty else {
             let message = statusText
             onError?(message)
             throw NSError(domain: "heen.stt", code: 1,
@@ -102,7 +118,8 @@ final class SherpaStreamingSTT: StreamingSTT {
     func stop() {
         input.stop()
         lock.lock()
-        recognizer?.reset()
+        for r in recognizers { r.reset() }
+        pending.removeAll()
         lastText = ""
         lock.unlock()
     }
@@ -111,8 +128,18 @@ final class SherpaStreamingSTT: StreamingSTT {
     /// after 50 s with no endpoint the stream is reset so memory cannot creep.
     func restartIfNeeded(maxSeconds: TimeInterval = 50) {
         guard Date().timeIntervalSince(startedAt) > maxSeconds, silenceDuration > 2.0 else { return }
-        lock.lock(); recognizer?.reset(); lock.unlock()
+        // The *standby* stream is cleared, never the live one: resetting the live recogniser threw
+        // away whatever had just been said.
+        lock.lock()
+        if recognizers.count == 2 { recognizers[1 - active].reset() }
+        lock.unlock()
         startedAt = Date()
+    }
+
+    /// Item 10: applies the chosen microphone and output to the live audio session.
+    func applyInputChoice(_ choice: AudioEndpoint, output: AudioEndpoint) {
+        (input as? MicrophoneInput)?.preferredInput = choice
+        (input as? MicrophoneInput)?.preferredOutput = output
     }
 
     var silenceDuration: TimeInterval {
@@ -124,25 +151,73 @@ final class SherpaStreamingSTT: StreamingSTT {
 
     // MARK: - Recognition
 
-    private func accept(_ samples: [Float], sampleRate: Double) {
-        guard !muted, !samples.isEmpty, let recognizer else { return }
-
+    /// Audio-tap thread. It only copies the samples and returns — decoding happens on
+    /// `decodeQueue`, so a slow decode can no longer make the tap drop audio.
+    private func enqueue(_ samples: [Float], sampleRate: Double) {
+        guard !muted, !samples.isEmpty else { return }
         lock.lock()
-        recognizer.acceptWaveform(samples: samples, sampleRate: Int(sampleRate))
-        while recognizer.isReady() { recognizer.decode() }
-        let text = recognizer.getResult().text
-        let endpoint = recognizer.isEndpoint()
-        if endpoint { recognizer.reset() }
-        if !text.isEmpty { lastVoiceTime = Date() }
-        let changed = !text.isEmpty && text != lastText
-        if changed { lastText = text }
-        if endpoint { lastText = "" }
+        // Bounded backlog: if decoding ever falls behind, the oldest audio goes rather than
+        // growing without limit.
+        let cap = 16_000 * 6
+        if pending.count > cap { pending.removeFirst(pending.count - cap) }
+        pending.append(contentsOf: samples)
+        pendingRate = sampleRate
+        let needsDrain = !draining
+        if needsDrain { draining = true }
         lock.unlock()
+        if needsDrain { decodeQueue.async { [weak self] in self?.drain() } }
+    }
 
-        if changed { onPartial?(text) }
-        if endpoint {
-            let final = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !final.isEmpty { onEndpoint?(final) }
+    /// Decode thread. Both streams (item 1) are fed every sample; only the active one is decoded,
+    /// so the cost stays close to a single recogniser while the standby keeps a warm context.
+    private func drain() {
+        while true {
+            lock.lock()
+            if muted || recognizers.count != 2 {
+                pending.removeAll()
+                draining = false
+                lock.unlock()
+                return
+            }
+            let chunk = pending
+            let rate = pendingRate
+            pending.removeAll(keepingCapacity: true)
+            if chunk.isEmpty {
+                draining = false
+                lock.unlock()
+                return
+            }
+            lock.unlock()
+
+            for r in recognizers { r.acceptWaveform(samples: chunk, sampleRate: Int(rate)) }
+            let activeIndex = active
+            let current = recognizers[activeIndex]
+            while current.isReady() { current.decode() }
+            let text = current.getResult().text
+            let endpoint = current.isEndpoint()
+
+            lock.lock()
+            if !text.isEmpty { lastVoiceTime = Date() }
+            let changed = !text.isEmpty && text != lastText
+            if changed { lastText = text }
+            if endpoint {
+                // Handover in one step: the finished stream is cleared while it is idle and the
+                // standby — which has been receiving the same audio all along — becomes live at
+                // exactly this utterance boundary. No sample is ever handled by a stream that is
+                // being reset, and no word is lost at the seam.
+                recognizers[activeIndex].reset()
+                let next = 1 - activeIndex
+                recognizers[next].reset()
+                active = next
+                lastText = ""
+            }
+            lock.unlock()
+
+            if changed { onPartial?(text) }
+            if endpoint {
+                let final = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !final.isEmpty { onEndpoint?(final) }
+            }
         }
     }
 

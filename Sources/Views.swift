@@ -7,13 +7,12 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var showLog = false
     @State private var showSettings = false
-    /// The status light follows Dynamic Type (a fixed 46/26 pt dot next to XL text read as a speck).
-    @ScaledMetric(relativeTo: .title2) private var ledOuter: CGFloat = 46
-    @ScaledMetric(relativeTo: .title2) private var ledInner: CGFloat = 26
+    /// Item 6: the light is small now and sits next to the Settings button, not in a header row.
+    @ScaledMetric(relativeTo: .body) private var ledOuter: CGFloat = 22
+    @ScaledMetric(relativeTo: .body) private var ledInner: CGFloat = 13
 
     var body: some View {
         VStack(spacing: 10) {
-            header
             if let err = p.lastError { errorBanner(err) }
             hebrewPanel
             englishPanel
@@ -59,30 +58,20 @@ struct ContentView: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.red.opacity(0.85)))
     }
 
-    /// One big status light. Green = ready and working. No prose on the main screen:
-    /// the only text allowed here is the status word itself and a real problem message.
-    private var header: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                // Scaled with Dynamic Type: a fixed 46 pt dot next to XL text read as a speck.
-                Circle().fill(ledColor.opacity(0.22)).frame(width: ledOuter, height: ledOuter)
-                Circle().fill(ledColor).frame(width: ledInner, height: ledInner)
-                    .shadow(color: ledColor.opacity(0.9), radius: 8)
-            }
-            Text(ledTitle)
-                .font(Theme.statusFont)
-                .foregroundStyle(ledColor)
-                .accessibilityIdentifier("statusTitle")
-            if isStarting {
-                // A cold start takes 10-30 s: something has to move, or it looks hung.
-                ProgressView().controlSize(.small)
-            }
-            Spacer()
+    /// Item 6: one small status light — green = ready and working, amber = still starting, red =
+    /// a real problem. The status word is gone from the screen; it lives on only as this
+    /// element's accessibility label, which is also what the UI tests wait on.
+    private var statusLight: some View {
+        ZStack {
+            Circle().fill(ledColor.opacity(0.22)).frame(width: ledOuter, height: ledOuter)
+            Circle().fill(ledColor).frame(width: ledInner, height: ledInner)
         }
+        .frame(width: 46, height: 46)   // full-size element for taps and the layout audit
+        .accessibilityElement()
+        .accessibilityIdentifier("statusTitle")
+        .accessibilityLabel(ledTitle)
+        .accessibilityValue(ledTitle)
     }
-
-    /// Models still loading / engine not up yet.
-    private var isStarting: Bool { p.status == .idle && !p.modelsState.isActive }
 
     private var ledColor: Color {
         if p.lastError != nil { return .red }
@@ -121,11 +110,13 @@ struct ContentView: View {
     private var hebrewPanel: some View {
         VStack(alignment: .leading, spacing: 4) {
             ScrollView {
-                if p.hebrewLive.isEmpty {
+                if p.hebrewText.isEmpty && p.hebrewLive.isEmpty {
                     hint("Speak Hebrew — the words appear here", id: "hebrewText")
                         .environment(\.layoutDirection, .leftToRight)
                 } else {
-                    Text(p.hebrewLive)
+                    // Item 3: the transcript keeps every pointed sentence and scrolls; the live
+                    // words are only the tail of it until their pointed form is ready.
+                    Text(p.hebrewLive.isEmpty ? p.hebrewText : p.hebrewText + " " + p.hebrewLive)
                         .font(Theme.panelFont)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .textSelection(.enabled)
@@ -186,26 +177,31 @@ struct ContentView: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
+            // Item 11: start/stop now fills the row; the small buttons and the light sit at the
+            // trailing edge.
             Button {
                 if p.running { p.stop() } else { p.start() }
             } label: {
                 Image(systemName: p.running ? "stop.fill" : "mic.fill")
                     .font(.system(size: 30, weight: .bold))
                     .symbolEffect(.pulse, options: .repeating, isActive: p.running)
-                    .frame(width: 78, height: 78)
-                    .background(Circle().fill(p.running ? Color.red : Color.accentColor))
+                    .frame(maxWidth: .infinity, minHeight: 64)
+                    .background(RoundedRectangle(cornerRadius: 16)
+                        .fill(p.running ? Color.red : Color.accentColor))
                     .foregroundStyle(.white)
             }
             .accessibilityIdentifier("mainToggle")
             .accessibilityLabel(p.running ? "Stop listening" : "Start listening")
+            // The status word rides on this control (item 6 keeps it off the screen). The UI
+            // tests wait on exactly this value instead of a status label that no longer exists.
+            .accessibilityValue(ledTitle)
 
-            HStack(spacing: 10) {
-                iconButton("arrow.uturn.left", "Repeat last sentence") { p.repeatLast() }
-                iconButton("list.bullet.rectangle", "Log") { showLog = true }
-                iconButton("gearshape", "Settings") { showSettings = true }
-            }
-            Spacer()
+            // Item 7: the repeat (curved-arrow) button is gone.
+            iconButton("list.bullet.rectangle", "Log") { showLog = true }
+            iconButton("gearshape", "Settings") { showSettings = true }
+            // Item 6: the small light sits to the right of Settings.
+            statusLight
         }
     }
 

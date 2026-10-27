@@ -84,4 +84,22 @@ final class GateAndTextTests: XCTestCase {
         let gate = HebrewCompletenessGate()
         XCTAssertFalse(gate.evaluate("   ", trailingSilence: 5, isSTTFinal: true, pendingAge: 5).emit)
     }
+
+    /// Item 2: the overlap-removal tool. The two recogniser streams (and every partial they send)
+    /// repeat each other's tail — the repeated words are dropped and only the new tail is kept.
+    func testOverlapRemovalDropsRepeatedWords() {
+        XCTAssertEqual(TextUtil.dropOverlap(previous: "שלום מה שלומך", next: "מה שלומך היום"),
+                       "היום")
+        XCTAssertEqual(TextUtil.dropOverlap(previous: "שלום", next: "שלום"), "")
+        XCTAssertEqual(TextUtil.dropOverlap(previous: "שלום", next: "מה שלומך"), "מה שלומך")
+        XCTAssertEqual(TextUtil.dropOverlap(previous: "", next: "מה שלומך"), "מה שלומך")
+    }
+
+    /// Items 4 and 5: the points are what the Hebrew panel shows, and exactly what the translator
+    /// must never receive — it was trained on unpointed Hebrew.
+    func testNikudIsStrippedForTranslationOnly() {
+        XCTAssertEqual(TextUtil.stripNikud("שלום\u{05B8}\u{05B0}"), "שלום")
+        XCTAssertEqual(TextUtil.stripNikud("מה\u{05B7} שלומך\u{05BC}"), "מה שלומך")
+        XCTAssertEqual(TextUtil.stripNikud("שלום"), "שלום")
+    }
 }

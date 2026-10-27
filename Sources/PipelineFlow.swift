@@ -18,10 +18,10 @@ extension Pipeline {
     }
 
     func handlePartial(_ text: String) {
-        // The recognizer re-sends the whole utterance on every partial. Once a sentence
-        // has been emitted, its words must not be counted again — otherwise the same
-        // sentence is re-translated and re-spoken a dozen times.
-        let stripped = Self.removePrefix(text, prefix: lastEmitted)
+        // The recognizer re-sends the whole utterance on every partial, and the two streams
+        // (item 1) repeat each other's tail. Item 2's overlap-removal tool drops the repeated
+        // words first, so one valid text is left instead of the same words twice.
+        let stripped = TextUtil.dropOverlap(previous: lastEmitted, next: text)
         accumulated = TextUtil.mergeOverlap(accumulated, stripped)
         hebrewLive = accumulated.isEmpty ? lastEmitted : accumulated
         tracePartial(accumulated)
@@ -31,7 +31,7 @@ extension Pipeline {
     /// The recogniser detected an endpoint: the utterance is over, so this is the moment the
     /// gate is allowed to treat the text as final.
     func handleEndpoint(_ text: String) {
-        let stripped = Self.removePrefix(text, prefix: lastEmitted)
+        let stripped = TextUtil.dropOverlap(previous: lastEmitted, next: text)
         accumulated = TextUtil.mergeOverlap(accumulated, stripped)
         hebrewLive = accumulated.isEmpty ? lastEmitted : accumulated
         Self.trace("STT endpoint: \(text)")
@@ -126,13 +126,24 @@ extension Pipeline {
                 log[index].hebrew = pointed
             }
         }
-        Self.trace("translate IN: \(pointed)")
+        // Item 4 (priority 1): nikud is applied straight after STT — before anything is translated.
+        // Item 3: the pointed sentence is *appended* to the Hebrew transcript, so the panel fills
+        // and scrolls like the English one instead of being blanked on every sentence.
+        if !pointed.isEmpty, hebrewText != pointed {
+            if !hebrewText.isEmpty { hebrewText += " " }
+            hebrewText += pointed
+        }
+        hebrewLive = ""
+        // Item 5: the translator was trained on unpointed Hebrew, so the points are removed for
+        // translation only — the pointed form is what stays on screen and in the log.
+        let forTranslation = TextUtil.stripNikud(pointed)
+        Self.trace("translate IN: \(forTranslation)")
         let t0 = Date()
         Task { @MainActor in
             var translated = ""
             if let engine {
                 do {
-                    translated = TextUtil.sanitizeTranslation(try await engine.translate(pointed))
+                    translated = TextUtil.sanitizeTranslation(try await engine.translate(forTranslation))
                     Self.trace("translate OUT (\(Int(Date().timeIntervalSince(t0) * 1000)) ms): \(translated)")
                 } catch {
                     self.lastError = error.localizedDescription
@@ -184,7 +195,11 @@ extension Pipeline {
         if !accumulated.isEmpty && stt.silenceDuration >= gate.mode.silenceToEmit {
             evaluate(accumulated, isFinal: false)
         }
-        if let speech = speechQueue.first, !stt.isSpeechActive, !speaker.isSpeaking, queue.isEmpty {
+        // Item 8: speak the moment a translation is ready. The old condition also waited for the
+        // speaker to fall silent *and* for the translation queue to drain, which added seconds
+        // between "translated" and "heard". The mic is muted in this same tick, so none of the
+        // English can be transcribed back.
+        if let speech = speechQueue.first, !speaker.isSpeaking {
             speechQueue.removeFirst()
             status = .speaking
             // Mute the mic while talking: the speaker's own English must never be

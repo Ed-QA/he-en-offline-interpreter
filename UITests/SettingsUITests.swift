@@ -14,8 +14,8 @@ final class SettingsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-HEENUITest"] + (resetPrefs ? ["-HEENResetPrefs"] : [])
         app.launch()
-        XCTAssertTrue(app.staticTexts["statusTitle"].waitForExistence(timeout: 90),
-                      "the status light never appeared")
+        XCTAssertTrue(app.buttons["mainToggle"].waitForExistence(timeout: 90),
+                      "the start/stop control never appeared")
         return app
     }
 
@@ -84,8 +84,8 @@ final class SettingsUITests: XCTestCase {
         return element
     }
 
-    /// Everything a user actually needs: pick a voice, set the rate, hear it, choose how the app
-    /// chunks speech, send the logs, reset. The developer tools stay reachable but separate.
+    /// Everything a user actually needs and nothing else: pick input/output, pick a voice, set the
+    /// rate, hear it, choose how the app chunks speech, send the logs.
     func testSettingsOffersTheNeededControls() {
         let app = launch()
         openSettings(app)
@@ -94,20 +94,16 @@ final class SettingsUITests: XCTestCase {
         // a snapshot per pass): the earlier scan (10 swipes down + 10 up per row, then a snapshot
         // per pass) took 110 s and hit the per-test allowance in CI. It still scrolls first, because
         // the dark-mode run uses large text, where even these rows start below the fold.
-        for id in ["voicePicker", "rateSlider", "testVoice", "gateModePicker"] {
+        for id in ["micPicker", "outputPicker", "voicePicker", "rateSlider", "testVoice", "gateModePicker"] {
             XCTAssertTrue(scrollTo(app, id).waitForExistence(timeout: 5),
                           "\(id) is missing from Settings")
         }
 
         // The form is lazy, so the tail of the list only exists after a scroll.
-        for id in ["shareLogsSettings", "resetSettings"] {
+        for id in ["shareLogsSettings"] {
             XCTAssertTrue(scrollTo(app, id).waitForExistence(timeout: 5),
                           "\(id) is missing from Settings")
         }
-        // A section header exposes its title as a label, not as an identifier, and at large text
-        // sizes it sits below the reset row that the loop above stopped at.
-        XCTAssertTrue(scrollTo(app, app.staticTexts["Developer"].firstMatch).waitForExistence(timeout: 5),
-                      "the developer section is missing")
     }
 
     func testHearThisVoiceIsSafeToTap() {
@@ -122,7 +118,7 @@ final class SettingsUITests: XCTestCase {
         closeSettings(app)
     }
 
-    func testChunkingModeSurvivesARelaunchAndResetRestoresIt() {
+    func testChunkingModeSurvivesARelaunch() {
         let app = launch()
         openSettings(app)
 
@@ -143,13 +139,6 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(shown.waitForExistence(timeout: 20))
         XCTAssertTrue(wait(15) { shows(relaunched, shown, "Complete") },
                       "the chunking mode was not remembered across a relaunch (picker says \"\(shown.label)\")")
-
-        let reset = scrollTo(relaunched, "resetSettings")
-        XCTAssertTrue(reset.waitForExistence(timeout: 10), "the reset row is missing")
-        reset.tap()
-        _ = scrollTo(relaunched, "gateModePicker")   // back up: the form is lazy
-        XCTAssertTrue(wait(15) { shows(relaunched, shown, "Balanced") },
-                      "reset did not restore the default chunking mode (picker says \"\(shown.label)\")")
     }
 
     func testSendLogsFromSettingsOpensTheNativeShareSheet() {

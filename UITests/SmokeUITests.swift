@@ -11,9 +11,9 @@ final class SmokeUITests: XCTestCase {
     /// The controls are only meaningful once the models are loaded: a tap that lands while the app
     /// is still STARTING can be swallowed, which is how `testSettingsAndLogOpen` flaked in CI.
     private func waitForReady(_ app: XCUIApplication) {
-        let status = app.staticTexts["statusTitle"]
-        XCTAssertTrue(status.waitForExistence(timeout: 90), "the status light title never appeared")
-        let ready = expectation(for: NSPredicate(format: "label == %@", "READY"), evaluatedWith: status)
+        let status = app.buttons["mainToggle"]
+        XCTAssertTrue(status.waitForExistence(timeout: 90), "the start/stop control never appeared")
+        let ready = expectation(for: NSPredicate(format: "value == %@", "READY"), evaluatedWith: status)
         wait(for: [ready], timeout: 180)
     }
 
@@ -22,8 +22,8 @@ final class SmokeUITests: XCTestCase {
         app.launchArguments = ["-HEENUITest"]   // no mic start, no permission alert
         app.launch()
 
-        let status = app.staticTexts["statusTitle"]
-        XCTAssertTrue(status.waitForExistence(timeout: 90), "the status light title never appeared")
+        let status = app.buttons["mainToggle"]
+        XCTAssertTrue(status.waitForExistence(timeout: 90), "the start/stop control never appeared")
 
         XCTAssertTrue(app.staticTexts["hebrewText"].exists, "the Hebrew panel is missing")
         XCTAssertTrue(app.staticTexts["englishText"].exists, "the English panel is missing")

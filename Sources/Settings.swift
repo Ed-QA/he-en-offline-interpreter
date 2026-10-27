@@ -5,23 +5,28 @@ import SwiftUI
 struct SettingsSheet: View {
     @EnvironmentObject var p: Pipeline
     @Environment(\.dismiss) private var dismiss
-    @State private var showProbe = false
-    @State private var probeText = ""
-    @State private var showSamples = false
     @State private var reportURL: URL?
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Engine") {
-                    Text(p.engineStatus).font(.footnote)
-                    Text("STT: \(p.sttStatus)").font(.footnote)
-                    if case .active(let proof) = p.modelsState {
-                        Text("Model self-test: \(proof)").font(.footnote)
-                    }
-                    Button("Re-check availability") { Task { await p.prepare() } }
-                }
+                // Item 9: three blocks only — voice (with the item 10 input/output selectors),
+                // chunking, and Send logs. Every explanatory text and the title are gone.
                 Section {
+                    Picker("Input", selection: $p.micChoice) {
+                        ForEach(AudioEndpoint.allCases) { e in
+                            Text(e.label).tag(e)
+                        }
+                    }
+                    .disabled(!p.micAvailable)
+                    .accessibilityIdentifier("micPicker")
+                    Picker("Output", selection: $p.outputChoice) {
+                        ForEach(AudioEndpoint.allCases) { e in
+                            Text(e.label).tag(e)
+                        }
+                    }
+                    .disabled(!p.outputAvailable)
+                    .accessibilityIdentifier("outputPicker")
                     Picker("Voice", selection: $p.voiceIdentifier) {
                         ForEach(Speaker.englishVoices(), id: \.identifier) { v in
                             Text("\(v.name) · \(v.language) · \(Speaker.qualityLabel(v))")
@@ -41,8 +46,6 @@ struct SettingsSheet: View {
                         .accessibilityIdentifier("testVoice")
                 } header: {
                     Text("Voice")
-                } footer: {
-                    Text("The interpreter speaks English with the system voice. \"Hear this voice\" plays one sentence.")
                 }
                 Section {
                     Picker("Mode", selection: $p.gateMode) {
@@ -52,11 +55,9 @@ struct SettingsSheet: View {
                     }
                     .accessibilityIdentifier("gateModePicker")
                 } header: {
-                    Text("Chunking — Hebrew sense gate")
-                } footer: {
-                    Text("How long the app waits for a sentence to make sense before translating and speaking it. Fast is snappier; Complete waits longer.")
+                    Text("Chunking")
                 }
-                Section("Diagnostics") {
+                Section {
                     // The row is always present: while the report is still being written it renders
                     // as a plain label, so it can never disappear from under the user or the audit.
                     if let reportURL {
@@ -75,49 +76,24 @@ struct SettingsSheet: View {
                             .frame(minHeight: 44)
                             .accessibilityIdentifier("shareLogsSettings")
                     }
-                    Button("Run capability probe") {
-                        Task {
-                            probeText = await CapabilityProbe.run()
-                            showProbe = true
-                        }
-                    }
-                }
-                Section {
-                    Button("Reset settings", role: .destructive) { p.resetSettings() }
-                        .accessibilityIdentifier("resetSettings")
-                } footer: {
-                    Text("Restores the default voice, rate and chunking mode.")
-                }
-                Section("Developer") {
-                    Button("Generate voice samples for ALL English voices") {
-                        p.runVoiceSampler()
-                        showSamples = true
-                    }
-                    Text("Writes a 20-second sample per voice into the app's Documents folder. Not needed for normal use.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if let progress = p.voiceSampleProgress {
-                        Text(progress).font(.caption).foregroundStyle(.secondary)
-                    }
-                    if p.voiceSamplerRunning {
-                        Button("Cancel sampling", role: .destructive) { p.cancelVoiceSampler() }
-                            .accessibilityIdentifier("cancelVoiceSampler")
-                    }
-                }
-                Section {
-                    Text("Total offline. No network, no APIs. All processing happens on this iPhone.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("Settings")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Close") { dismiss() } }
             }
-            .sheet(isPresented: $showProbe) { TextSheet(title: "Capability probe", text: probeText) }
-            .sheet(isPresented: $showSamples) { VoiceSamplesSheet() }
             // The report is written when the sheet opens, so "Send logs" always shares a fresh file.
-            .task { reportURL = p.writeLogFile() }
+            .task {
+                reportURL = p.writeLogFile()
+                p.refreshAudioRoutes()
+                // Item 10: availability is re-checked while the sheet is open, so unplugging the
+                // earplugs greys the choice out right away.
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    p.refreshAudioRoutes()
+                }
+            }
         }
     }
 }

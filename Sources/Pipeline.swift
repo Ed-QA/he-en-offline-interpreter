@@ -32,11 +32,25 @@ final class Pipeline: ObservableObject {
     @Published var status: Status = .idle
     @Published var running = false
     @Published var hebrewLive = ""
+    /// The committed Hebrew transcript — the *pointed* sentences, appended as they are produced
+    /// (items 3 and 4): the panel fills and scrolls instead of being blanked on every emit.
+    @Published var hebrewText = ""
     @Published var englishText = ""
     @Published var log: [LogEntry] = []
     @Published var gateMode: GateMode = Prefs.gateMode {
         didSet { gate.mode = gateMode; Prefs.gateMode = gateMode }
     }
+    /// Item 10: which physical input/output to use, and whether each is currently available.
+    /// Availability is re-checked continuously so a choice that is no longer possible (earplugs
+    /// unplugged) greys out instead of silently doing nothing.
+    @Published var micChoice: AudioEndpoint = Prefs.micChoice {
+        didSet { Prefs.micChoice = micChoice; applyAudioRoute() }
+    }
+    @Published var outputChoice: AudioEndpoint = Prefs.outputChoice {
+        didSet { Prefs.outputChoice = outputChoice; applyAudioRoute() }
+    }
+    @Published var micAvailable = true
+    @Published var outputAvailable = true
     @Published var voiceIdentifier: String? = Prefs.voiceIdentifier ?? Speaker.defaultEnglishVoice()?.identifier {
         didSet { speaker.voiceIdentifier = voiceIdentifier; Prefs.voiceIdentifier = voiceIdentifier }
     }
@@ -132,6 +146,21 @@ final class Pipeline: ObservableObject {
         gate.mode = gateMode
         speaker.voiceIdentifier = voiceIdentifier
         speaker.rate = rate
+        refreshAudioRoutes()
+        applyAudioRoute()
+    }
+
+    /// Item 10: re-reads what the system currently offers, so an impossible choice can grey out.
+    func refreshAudioRoutes() {
+        micAvailable = AudioRoute.isAvailable(micChoice, input: true)
+        outputAvailable = AudioRoute.isAvailable(outputChoice, input: false)
+    }
+
+    /// Item 10: hands the chosen input/output to the audio session and to the running microphone.
+    func applyAudioRoute() {
+        AudioRoute.applyInput(micChoice)
+        AudioRoute.applyOutput(outputChoice)
+        stt.applyInputChoice(micChoice, output: outputChoice)
     }
 
     /// Back to the shipped defaults, and forget them so the next launch is a fresh install.
@@ -283,6 +312,7 @@ final class Pipeline: ObservableObject {
         UIApplication.shared.isIdleTimerDisabled = false
         status = .idle
         hebrewLive = ""
+        hebrewText = ""
         englishText = ""   // both panels blank together, not just the Hebrew one
         accumulated = ""
         pendingSince = nil

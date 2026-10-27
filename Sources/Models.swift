@@ -62,6 +62,39 @@ enum TextUtil {
         return (A + B.dropFirst(best)).joined(separator: " ")
     }
 
+    /// Item 2 — the overlap-removal tool. Every recogniser stream (and every partial it sends)
+    /// repeats the tail of what was already taken. This drops the repeated words and returns only
+    /// the new tail, so one valid sentence is left instead of the same words twice.
+    static func dropOverlap(previous: String, next: String) -> String {
+        let p = tokenize(previous)
+        let n = tokenize(next)
+        guard !p.isEmpty, !n.isEmpty else { return next }
+        var overlap = 0
+        for k in stride(from: min(p.count, n.count), through: 1, by: -1) {
+            if Array(p.suffix(k)) == Array(n.prefix(k)) { overlap = k; break }
+        }
+        guard overlap > 0 else { return next }
+        // The cut is made on the raw string so punctuation and spacing survive untouched.
+        var seen = 0
+        var index = next.startIndex
+        while index < next.endIndex {
+            let atWordStart = index == next.startIndex || next[next.index(before: index)] == " "
+            if next[index] != " " && atWordStart {
+                if seen == overlap { return String(next[index...]) }
+                seen += 1
+            }
+            index = next.index(after: index)
+        }
+        return ""
+    }
+
+    /// Hebrew points: cantillation marks and vowels (U+0591–U+05C7). The bundled translator was
+    /// trained on unpointed Hebrew, so the pointed sentence is normalised before translation
+    /// (item 5) while the pointed form is what stays on screen (item 4).
+    static func stripNikud(_ s: String) -> String {
+        String(String.UnicodeScalarView(s.unicodeScalars.filter { !(0x0591...0x05C7).contains($0.value) }))
+    }
+
     static func tokenize(_ s: String) -> [String] {
         s.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).map(String.init)
     }

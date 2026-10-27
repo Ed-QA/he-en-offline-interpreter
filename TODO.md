@@ -83,5 +83,29 @@ failure messages out of the result bundle):
   attachment after the finding it describes, and the double quote in
   `description for "gateModePicker" Any` made the artifact upload step fail.
 
+## Ordered by the user (2026-10-26) — do exactly this
+
+1. **STT drops audio.** The recogniser stops listening from time to time and words are lost. Fix as
+   ordered: **two STT instances running in parallel, working in sequence**, so the second one
+   overlaps the end of the first one's chunk — no gap while the active one decodes/resets.
+2. **Overlap-removal tool.** After the two streams, a tool must delete the duplicated overlap and
+   leave one valid recognised text — **with nikud** — in the Hebrew field.
+3. **Hebrew field must not disappear.** It has to behave like the English field: keep the text and
+   scroll up as it fills.
+4. **NIKUD IS PRIORITY 1.** Nikud must be applied **right after STT** (before translation) and the
+   pointed text must be what the Hebrew field shows.
+5. **Replace the translator.** The current bundled model gives archaic/religious output; find a
+   modern he→en translator that works with pointed (nikud) input and use it instead.
+6. **Status LED**: make it smaller, move it to the bottom-right of the Settings button; delete the
+   "Listening"/status word.
+7. **Delete the back/return (curved-arrow) button.**
+8. **TTS delay**: the gap from "translation ready" to "speech starts" is huge — make it minimal.
+9. **Settings: delete everything** except the voice block, the chunking block and Send logs —
+   including all explanatory texts and the "Settings" title.
+10. **Settings: add input (phone / earbuds) and output (phone / earbuds) selectors** for STT mic and
+    TTS output, each auto-checking availability and greyed out when unavailable.
+11. **Start/Stop button: make it wide** — fill the available space in the bottom row (same row as
+    Settings and the LED).
+
 ## Open
 - [ ] Retire the pinned contrast expectation (`XCTExpectFailure`) after a light-mode visual check
