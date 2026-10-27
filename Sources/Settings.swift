@@ -53,6 +53,10 @@ struct SettingsSheet: View {
                     }
                     Button("Hear this voice") { p.speakSample() }
                         .accessibilityIdentifier("testVoice")
+                    // Off by default: the microphone is only muted while the app speaks when the
+                    // user asks for it.
+                    Toggle("Mute microphone while speaking", isOn: $p.muteWhileSpeaking)
+                        .accessibilityIdentifier("muteWhileSpeakingToggle")
                 } header: {
                     Text("Voice")
                 }

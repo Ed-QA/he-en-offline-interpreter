@@ -72,6 +72,10 @@ final class Pipeline: ObservableObject {
     @Published var rate: Float = Prefs.rate(for: Prefs.target) {
         didSet { speaker.rate = rate; Prefs.setRate(rate, for: target) }
     }
+    /// Off by default. On: the microphone is muted while the app speaks. Off: it keeps listening.
+    @Published var muteWhileSpeaking: Bool = Prefs.muteWhileSpeaking {
+        didSet { Prefs.muteWhileSpeaking = muteWhileSpeaking }
+    }
     @Published var sttStatus = "checking…"
     @Published var engineStatus = "checking…"
     @Published var engineReady = false

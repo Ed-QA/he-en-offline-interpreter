@@ -205,9 +205,10 @@ extension Pipeline {
         if let speech = speechQueue.first, !speaker.isSpeaking {
             speechQueue.removeFirst()
             status = .speaking
-            // Mute the mic while talking: the speaker's own English must never be
-            // transcribed and re-translated (feedback loop), and the TTS must not be cut off.
-            stt.muted = true
+            // Mute the mic while talking only when the user asked for it: the speaker's own English
+            // must never be transcribed and re-translated (feedback loop) when this is on. Off by
+            // default, so the microphone keeps listening while the app speaks.
+            if Prefs.muteWhileSpeaking { stt.muted = true }
             speaker.onFinish = { [weak self] in
                 Task { @MainActor in
                     guard let self else { return }

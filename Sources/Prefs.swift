@@ -26,6 +26,7 @@ enum Prefs {
     static let rateKeyUK = "heen.rate.uk"
     static let micKey = "heen.micUID"
     static let outputKey = "heen.outputChoice"
+    static let muteWhileSpeakingKey = "heen.muteWhileSpeaking"
 
     /// The microphone the user picked (a port uid); `nil` means "let iOS choose".
     static var micUID: String? {
@@ -53,6 +54,13 @@ enum Prefs {
             case .connected(let uid): store.set("connected:\(uid)", forKey: outputKey)
             }
         }
+    }
+
+    /// Off by default. When on, the microphone is muted while the app speaks, so the app can never
+    /// transcribe its own voice; when off (the default) the microphone stays live.
+    static var muteWhileSpeaking: Bool {
+        get { store.bool(forKey: muteWhileSpeakingKey) }
+        set { store.set(newValue, forKey: muteWhileSpeakingKey) }
     }
 
     private static func voiceKey(for language: TargetLanguage) -> String {
