@@ -25,7 +25,8 @@ struct SettingsSheet: View {
                     Picker("Microphone", selection: $p.micUID) {
                         Text("Automatic").tag(String?.none)
                         ForEach(AudioRoute.inputOptions(), id: \.uid) { port in
-                            Text(port.portName).tag(String?.some(port.uid))
+                            // Stored by name: a port uid changes on every reconnect, a name does not.
+                            Text(port.portName).tag(String?.some(port.portName))
                         }
                     }
                     .accessibilityIdentifier("micPicker")

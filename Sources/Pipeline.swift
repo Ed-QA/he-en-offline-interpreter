@@ -346,6 +346,12 @@ final class Pipeline: ObservableObject {
         pendingSince = nil
         spokenHebrew = ""
         speechQueue = []
+        // Anything still waiting to be translated or spoken belongs to the session that just
+        // ended: a restart used to replay the old sentence.
+        queue = []
+        translating = false
+        lastQueuedSentence = ""
+        lastEmitAt = .distantPast
         pendingSpeechAt = nil
         // A restart must not remember the previous session's sentence, or the first words of
         // the next one would be stripped as an echo.

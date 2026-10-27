@@ -18,24 +18,23 @@ extension Pipeline {
     }
 
     func handlePartial(_ text: String) {
-        // The recognizer re-sends the whole utterance on every partial, and the two streams
-        // (item 1) repeat each other's tail. Item 2's overlap-removal tool drops the repeated
-        // words first, so one valid text is left instead of the same words twice.
-        let stripped = TextUtil.dropOverlap(previous: lastEmitted, next: text)
-        accumulated = TextUtil.mergeOverlap(accumulated, stripped)
-        hebrewLive = accumulated.isEmpty ? lastEmitted : accumulated
-        tracePartial(accumulated)
-        evaluate(accumulated, isFinal: false)
+        // The recognizer re-sends the whole utterance on every partial, so the text *is* the
+        // sentence so far. It used to be diffed against the previous partial and merged through an
+        // overlap-removal tool — that mangled the Hebrew into nonsense chunks.
+        accumulated = text
+        hebrewLive = text
+        tracePartial(text)
+        evaluate(text, isFinal: false)
     }
 
     /// The recogniser detected an endpoint: the utterance is over, so this is the moment the
     /// gate is allowed to treat the text as final.
     func handleEndpoint(_ text: String) {
-        let stripped = TextUtil.dropOverlap(previous: lastEmitted, next: text)
-        accumulated = TextUtil.mergeOverlap(accumulated, stripped)
-        hebrewLive = accumulated.isEmpty ? lastEmitted : accumulated
+        // Same rule as a partial: what the recognizer returns is the whole utterance, not a delta.
+        accumulated = text
+        hebrewLive = text
         Self.trace("STT endpoint: \(text)")
-        evaluate(accumulated, isFinal: true)
+        evaluate(text, isFinal: true)
         // Utterance boundary: forget what was emitted. The next utterance starts clean, so the
         // same words said again ("תודה רבה" twice) are new speech and must not be stripped as
         // if they were an echo of this one.
@@ -56,13 +55,10 @@ extension Pipeline {
         let age = pendingSince.map { Date().timeIntervalSince($0) } ?? 0
         let outcome = gate.evaluate(text, trailingSilence: silence, isSTTFinal: isFinal, pendingAge: age)
         lastGateReason = outcome.reason
-        if outcome.emit {
-            // Anti-spam: never emit twice in the same breath, and never for a one-word stub
-            // *mid-utterance*. At a real endpoint a bare "כן"/"תודה"/"מים" is a complete answer
-            // and used to be swallowed here.
-            if !isFinal, Date().timeIntervalSince(lastEmitAt) < 0.35 { return }
-            if !isFinal, TextUtil.tokenize(text).count < 2 { return }
-            emit(text, forced: outcome.forced, isFinal: isFinal)
+        // Only a finished utterance is translated and spoken. Emitting half-finished text was what
+        // produced the nonsense chunks and the audio that restarted from the beginning.
+        if outcome.emit, isFinal {
+            emit(text, forced: false, isFinal: true)
         } else if pendingSince == nil {
             pendingSince = Date()
         }
@@ -75,25 +71,20 @@ extension Pipeline {
         // used to push the same text through translation, TTS and the Hebrew panel twice.
         if sentence == lastQueuedSentence { return }
         lastQueuedSentence = sentence
-        // Item 5 (critical): never queue a word twice. Everything already queued or spoken for
-        // this utterance is stripped, so a growing forced emit only ever speaks the new tail.
-        let fresh = Self.removePrefix(sentence, prefix: spokenHebrew)
+        // The whole sentence goes to the translator exactly once, at the end of the utterance.
+        // (It used to be trimmed against what was already spoken and queued as a tail fragment —
+        // that is what made the translation read like nonsense.)
         lastEmitted = sentence
         lastEmitAt = Date()
         accumulated = ""
         pendingSince = nil
-        // Keep the sentence on screen — blanking the Hebrew panel made it look like
-        // nothing had been recognised at all.
+        // Keep the sentence on screen — blanking the Hebrew panel made it look like nothing had
+        // been recognised at all.
         hebrewLive = sentence
-        log.append(LogEntry(date: Date(), hebrew: sentence, english: "", forced: forced))
-        if fresh.isEmpty {
-            Self.trace("gate EMIT\(forced ? " (incomplete, forced)" : ""): \(sentence) — already spoken, skipped")
-            return
-        }
-        spokenHebrew = sentence
-        if isFinal { spokenHebrew = "" }   // utterance boundary: the next sentence starts clean
-        Self.trace("gate EMIT\(forced ? " (incomplete, forced)" : ""): \(sentence) → new words: \(fresh)")
-        queue.append(fresh)
+        log.append(LogEntry(date: Date(), hebrew: sentence, english: "", forced: false))
+        spokenHebrew = ""
+        Self.trace("gate EMIT: \(sentence)")
+        queue.append(sentence)
         processQueue()
     }
 

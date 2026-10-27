@@ -21,14 +21,11 @@ enum AudioRoute {
         AVAudioSession.sharedInstance().availableInputs ?? []
     }
 
-    /// Automatic, the phone speaker, and every output that is actually connected at this moment.
+    /// Automatic and the phone speaker — the two choices that survive a reconnect. A specific
+    /// connected device used to be listed here too, but a port's uid changes every time it
+    /// reconnects, so the saved choice stopped matching and the picker showed the wrong row.
     static func outputOptions() -> [Output] {
-        var options: [Output] = [.system, .speaker]
-        for port in AVAudioSession.sharedInstance().currentRoute.outputs
-        where port.portType != .builtInSpeaker && port.portType != .builtInReceiver {
-            options.append(.connected(port.uid))
-        }
-        return options
+        [.system, .speaker]
     }
 
     static func label(_ output: Output) -> String {
@@ -43,14 +40,15 @@ enum AudioRoute {
 
     // MARK: - Applying a choice (documented APIs only)
 
-    /// `nil` hands the microphone choice back to iOS.
-    static func applyInput(_ uid: String?) {
+    /// `nil` hands the microphone choice back to iOS. The argument is the port's *name*, which is
+    /// stable across reconnects — a uid is not, which is why a saved choice used to get lost.
+    static func applyInput(_ name: String?) {
         let session = AVAudioSession.sharedInstance()
-        guard let uid else {
+        guard let name else {
             try? session.setPreferredInput(nil)
             return
         }
-        guard let port = session.availableInputs?.first(where: { $0.uid == uid }) else { return }
+        guard let port = session.availableInputs?.first(where: { $0.portName == name }) else { return }
         try? session.setPreferredInput(port)
     }
 
