@@ -118,7 +118,11 @@ extension Pipeline {
         // Contract: the translator only ever sees *pointed* Hebrew. A bare Hebrew word has
         // several readings, so the recognised sentence is diacritized first (nikud) and that
         // pointed text — not the raw transcript — is what gets translated and shown.
-        let pointed = diacritize(sentence)
+        // The post-hoc diacritizer (phonikud, a separate model that guessed the points *after*
+        // recognition) is DELETED — it was crap: it added nikud late, and the points it invented
+        // were not what the speaker said. Nikud must come from the recognizer itself, so the
+        // recognised sentence goes on unchanged until that recognizer is in place.
+        let pointed = sentence
         if pointed != sentence {
             if let index = log.lastIndex(where: { $0.hebrew == sentence }) {
                 log[index].hebrew = pointed
