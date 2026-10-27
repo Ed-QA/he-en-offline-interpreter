@@ -83,6 +83,39 @@ final class ModelQualityTests: XCTestCase {
         }
     }
 
+    /// The translator's contract is *pointed* Hebrew (items 4/5). Each golden sentence is
+    /// diacritized first — exactly what the live pipeline hands over — and must still come out
+    /// with the same meaning: the points are carried where the model's vocabulary can hold them
+    /// and normalised word by word where they would shatter, and either way nothing is lost.
+    func testTranslationsWorkFromPointedHebrew() async throws {
+        guard let engine = await ONNXTranslationEngine.shared() else {
+            throw XCTSkip("bundled ONNX model unavailable: \(ONNXTranslationEngine.missingFiles())")
+        }
+        let pipeline = warmPipeline()
+        let cases: [(hebrew: String, anyOf: [String])] = [
+            (greetingQuestion, ["hello", "how are you"]),
+            (breadSentence, ["bread"]),
+            (studySentence, ["hebrew"]),
+            (stationSentence, ["station"]),
+        ]
+        var pointedCases = 0
+        for testCase in cases {
+            let pointed = pipeline.diacritize(testCase.hebrew)
+            if NikudAwareInput.hasNikud(pointed) { pointedCases += 1 }
+            let clean = TextUtil.sanitizeTranslation(try await engine.translate(pointed))
+            print("GOLDEN POINTED [\(pointed)] -> [\(clean)]")
+            XCTAssertFalse(clean.isEmpty, "empty translation for pointed: \(pointed)")
+            XCTAssertFalse(TextUtil.hasModelArtifacts(clean), "control tokens leaked: \(clean)")
+            XCTAssertTrue(testCase.anyOf.contains { clean.lowercased().contains($0) },
+                          "expected one of \(testCase.anyOf) in: \(clean)")
+        }
+        // When the diacritizer is present the points must really have been produced, or this test
+        // would quietly degrade into a second copy of the unpointed one.
+        if !pipeline.nikudUnavailable {
+            XCTAssertGreaterThan(pointedCases, 0, "the diacritizer produced no nikud at all")
+        }
+    }
+
     /// The interpreter is live: a warm diacritize + translate must stay well inside the window a
     /// speaker leaves between sentences. Generous budgets — the runner is a shared simulator.
     func testWarmLatencyFitsLiveInterpreting() async throws {
