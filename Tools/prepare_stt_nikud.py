@@ -50,10 +50,15 @@ def download():
 
     os.makedirs(RAW, exist_ok=True)
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-    if token:
-        log("using HF_TOKEN from the environment")
-    else:
-        log("no HF_TOKEN in the environment - anonymous download, which the gated repo rejects")
+    if not token:
+        log("no HF_TOKEN in the environment")
+        print("::warning::HF_TOKEN is not set, so Model/WhisperNikud cannot be fetched from the "
+              "gated checkpoint MayBog/whisper-hebrew-nikud-v1. This build has no Hebrew "
+              "recogniser model: accept the model terms at "
+              "https://huggingface.co/MayBog/whisper-hebrew-nikud-v1, create a read token and set "
+              "the repository secret HF_TOKEN. The app compiles and runs either way.", flush=True)
+        sys.exit(0)
+    log("using HF_TOKEN from the environment")
     snapshot_download(
         repo_id=MODEL,
         local_dir=RAW,

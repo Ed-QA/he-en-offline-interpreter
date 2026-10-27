@@ -26,21 +26,16 @@ jobs:
         # recognizer: the post-hoc diacritizer was deleted, and so was the streaming zipformer
         # model — nothing downloads or ships a model the app never opens.
         #
-        # MayBog/whisper-hebrew-nikud-v1 is a gated checkpoint: without a token Hugging Face
-        # answers 401. With no token the step is skipped and the build still runs, so the code is
-        # compiled and tested — but the bundle then has no recogniser model and the app says so.
-        if: ${{ secrets.HF_TOKEN != '' }}
+        # MayBog/whisper-hebrew-nikud-v1 is a gated checkpoint. Without the HF_TOKEN secret the
+        # script skips itself with a warning and the build carries on, so the code is compiled and
+        # tested now and the model joins the bundle the moment the token exists.
         run: |
           python -m pip install --quiet --upgrade pip
           python -m pip install --quiet "transformers==4.46.3" "torch==2.5.1" "onnx==1.17.0" "onnxruntime==1.20.1" "sentencepiece==0.2.0" sherpa-onnx huggingface_hub
           python Tools/prepare_stt_nikud.py
-          ls -lh Model/WhisperNikud
+          ls -lh Model/WhisperNikud || true
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      - name: No HF_TOKEN - this bundle has no recogniser model
-        if: ${{ secrets.HF_TOKEN == '' }}
-        run: |
-          echo "::warning::HF_TOKEN is not set, so Model/WhisperNikud is missing from this build. Accept the terms at https://huggingface.co/MayBog/whisper-hebrew-nikud-v1, create a read token, and set the repository secret HF_TOKEN. Until then the app starts, compiles and runs, but Hebrew recognition with nikud cannot load."
       - name: Tokenizer pre-flight (same Swift tokenizer code as the app)
         run: |
           cd Tools/TokenizerCheck
