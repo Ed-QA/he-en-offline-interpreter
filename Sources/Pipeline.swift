@@ -75,9 +75,12 @@ final class Pipeline: ObservableObject {
     @Published var sttStatus = "checking…"
     @Published var engineStatus = "checking…"
     @Published var engineReady = false
-    /// True only when the selected language's translation engine is loaded and usable. The status
-    /// light is green on this, so it can never be green while models are still loading or missing.
-    var isReady: Bool { engineReady && modelsState.isActive }
+    /// Set once the speech recognizer has actually started. Its model loads on first use — that is
+    /// the delay before recognition used to begin, and the reason the light could lie.
+    @Published var sttReady = false
+    /// True only when the translation engine is loaded *and* the recognizer is up. The status light
+    /// is green on this, so it can never be green while something is still loading or missing.
+    var isReady: Bool { engineReady && modelsState.isActive && sttReady }
     @Published var lastError: String?
     @Published var lastGateReason = ""
     @Published var voiceSampleProgress: String?
@@ -316,6 +319,8 @@ final class Pipeline: ObservableObject {
                 do {
                     try self.stt.start()
                     self.wireSTT()
+                    // The recognizer is live now, so the status light may finally go green.
+                    self.sttReady = true
                     self.running = true
                     self.status = .listening
                     UIApplication.shared.isIdleTimerDisabled = true  // keep the screen on while live
