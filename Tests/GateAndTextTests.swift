@@ -102,4 +102,20 @@ final class GateAndTextTests: XCTestCase {
         XCTAssertEqual(TextUtil.stripNikud("מה\u{05B7} שלומך\u{05BC}"), "מה שלומך")
         XCTAssertEqual(TextUtil.stripNikud("שלום"), "שלום")
     }
+
+    /// Item 5: the translator's input contract is pointed Hebrew. The points survive wherever the
+    /// model's own vocabulary can carry them; only a word the points would shatter falls back to
+    /// its unpointed form — and that decision is made by the engine, not by the pipeline.
+    func testNikudAwareTranslatorInput() {
+        let pointed = "שלום\u{05B8} מה\u{05B7} שלומך\u{05BC}"
+        // A vocabulary that can carry the points: every word keeps them.
+        XCTAssertEqual(NikudAwareInput.prepare(pointed) { _ in 1 }, pointed)
+        // A vocabulary that fragments pointed words: those words fall back to the unpointed form.
+        XCTAssertEqual(NikudAwareInput.prepare(pointed) { NikudAwareInput.hasNikud($0) ? 9 : 1 },
+                       "שלום מה שלומך")
+        // Unpointed input is passed through untouched.
+        XCTAssertEqual(NikudAwareInput.prepare("מה שלומך") { _ in 1 }, "מה שלומך")
+        XCTAssertTrue(NikudAwareInput.hasNikud("שלום\u{05B8}"))
+        XCTAssertFalse(NikudAwareInput.hasNikud("שלום"))
+    }
 }

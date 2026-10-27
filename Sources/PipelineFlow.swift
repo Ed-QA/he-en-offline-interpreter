@@ -134,16 +134,17 @@ extension Pipeline {
             hebrewText += pointed
         }
         hebrewLive = ""
-        // Item 5: the translator was trained on unpointed Hebrew, so the points are removed for
-        // translation only — the pointed form is what stays on screen and in the log.
-        let forTranslation = TextUtil.stripNikud(pointed)
-        Self.trace("translate IN: \(forTranslation)")
+        // Item 5: the translator is handed the *pointed* sentence — the nikud goes in with the
+        // text. How each engine uses it is the engine's own policy: the bundled model keeps the
+        // points its vocabulary can carry (NikudAwareInput), Apple's normalises because its
+        // on-device model has no pointed vocabulary at all.
+        Self.trace("translate IN: \(pointed)")
         let t0 = Date()
         Task { @MainActor in
             var translated = ""
             if let engine {
                 do {
-                    translated = TextUtil.sanitizeTranslation(try await engine.translate(forTranslation))
+                    translated = TextUtil.sanitizeTranslation(try await engine.translate(pointed))
                     Self.trace("translate OUT (\(Int(Date().timeIntervalSince(t0) * 1000)) ms): \(translated)")
                 } catch {
                     self.lastError = error.localizedDescription

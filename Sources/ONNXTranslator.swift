@@ -3,6 +3,34 @@ import Tokenizers
 
 /// Fully offline Hebrew → English translation using a bundled quantized OPUS-MT model
 /// (Marian, int8 ONNX) executed by ONNX Runtime on the CPU. Never touches the network.
+/// The translator's input contract: it is handed the **pointed** Hebrew sentence, exactly what
+/// the diacritizer produced. Whether a point survives is decided by the model's own vocabulary:
+/// this bundled SentencePiece holds only 327 pointed pieces against ~137 000 Hebrew letters, so a
+/// fully pointed word can shatter into rare fragments — which is what made the English garbled.
+/// The points are therefore kept wherever they tokenize as well as the unpointed word (the model
+/// can then actually use them) and dropped, word by word, only where they would destroy the word.
+enum NikudAwareInput {
+
+    /// `pieceCount` returns how many SentencePiece tokens a string needs; in the app it is the
+    /// engine's real tokenizer, in tests a stub.
+    static func prepare(_ pointed: String, pieceCount: (String) -> Int) -> String {
+        var out: [String] = []
+        for word in pointed.split(separator: " ", omittingEmptySubsequences: false) {
+            let word = String(word)
+            let hasPoints = word.unicodeScalars.contains { (0x0591...0x05C7).contains($0.value) }
+            guard hasPoints else { out.append(word); continue }
+            let bare = TextUtil.stripNikud(word)
+            out.append(pieceCount(word) <= pieceCount(bare) ? word : bare)
+        }
+        return out.joined(separator: " ")
+    }
+
+    /// True when the word carries Hebrew points.
+    static func hasNikud(_ word: String) -> Bool {
+        word.unicodeScalars.contains { (0x0591...0x05C7).contains($0.value) }
+    }
+}
+
 final class ONNXTranslationEngine: TranslationEngine {
 
     let name = "Bundled offline model (OPUS-MT he→en, int8)"
@@ -136,7 +164,13 @@ final class ONNXTranslationEngine: TranslationEngine {
 
     /// Encoder runs once, then greedy token-by-token decoding with the non-cached decoder.
     private func runGreedy(_ text: String) throws -> String {
-        var source = tokenizer.encode(text: text)
+        // The engine receives the pointed sentence. It keeps every point its own vocabulary can
+        // carry and normalises only the words the points would shatter (see `NikudAwareInput`).
+        let prepared = NikudAwareInput.prepare(text) { self.tokenizer.encode(text: $0).count }
+        if prepared != text {
+            Pipeline.trace("translate IN: points dropped where the vocabulary cannot carry them")
+        }
+        var source = tokenizer.encode(text: prepared)
         guard !source.isEmpty else { return "" }
         if source.count > 400 { source = Array(source.prefix(400)) }
         let mask = Array(repeating: 1, count: source.count)

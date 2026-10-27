@@ -29,7 +29,10 @@ final class AppleTranslationEngine: TranslationEngine {
 
     func translate(_ text: String) async throws -> String {
         guard let session else { throw TranslationError.notReady }
-        let response = try await session.translate(text)
+        // Same input contract as the bundled engine: pointed Hebrew is what arrives. Apple's
+        // on-device model has no pointed vocabulary at all, so this engine's nikud policy is to
+        // normalise — the points are accepted at the boundary, never rejected or mangled.
+        let response = try await session.translate(TextUtil.stripNikud(text))
         return response.targetText
     }
 }
