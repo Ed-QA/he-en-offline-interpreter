@@ -79,7 +79,10 @@ final class WhisperNikudSTT: StreamingSTT {
     // MARK: - Model
 
     static func folder() -> URL? {
-        Bundle.main.url(forResource: "encoder_model", withExtension: "onnx",
+        // The bundle ships the int8 files: the fp32 exports are deleted right after quantization, so
+        // probing for `encoder_model.onnx` found nothing and the recogniser was reported as "not in
+        // bundle" while the folder was in the app all along. Ask for the name that really ships.
+        Bundle.main.url(forResource: "encoder_model.int8", withExtension: "onnx",
                         subdirectory: "Model/WhisperNikud")?.deletingLastPathComponent()
     }
 
