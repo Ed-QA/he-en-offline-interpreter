@@ -124,5 +124,32 @@ failure messages out of the result bundle):
 - Status: candidate identified and evidenced; swap not started — needs the size/latency trade-off
   accepted (or an HF token if the repo turns out to be gated).
 
+## CI discipline — ordered 2026-10-26 (no unattended pushes)
+
+- No commit is left on `main` without watching its run to completion. Every push must be followed
+  by `gh run list`, any failing test named explicitly, fixed, and re-run before the next change.
+- Current state: `87a64f6` simulator tests failed on two stale UI expectations (the deleted repeat
+  button, the deleted offline footer). Both were fixed in `0efe251`; the pointed-translation test
+  was added in `3fcb920`. Those two runs are being watched to green.
+
+## Translator selection by popularity and fit — ordered 2026-10-26
+
+Measured from the Hugging Face API (downloads / likes / size), not from opinion:
+
+| model | downloads | likes | params | int8 | verdict |
+|---|---|---|---|---|---|
+| facebook/nllb-200-distilled-600M | 952,528 | 997 | 600M | ~600 MB | most used and modern, general web/news domain — but breaks the "not 600 MB" rule |
+| facebook/m2m100_418M | 309,551 | 357 | 418M | ~420 MB | larger than OPUS and weaker Hebrew than NLLB |
+| Helsinki-NLP/opus-mt-tc-big-he-en (shipped) | 5,004 | 6 | ~230M | ~90 MB | the only small option; OPUS training data is the archaic/religious bias |
+| Apple on-device translation (iOS 18+) | — | — | — | 0 MB | modern, offline, already wired in the app; needs the phone on iOS 18 |
+
+- Rule applied: take the best-reviewed, most-used model **that still fits the size limit**. NLLB
+  does not fit (600 MB), so the app keeps the 90 MB OPUS fallback and prefers Apple's modern engine
+  whenever the OS provides it (the phone currently reports iOS 17.6.1, so today it gets the
+  fallback).
+- Optional bundled-modern path if wanted: NLLB-200-distilled-600M exported at int4 (~300 MB) —
+  fits the size rule, needs the NLLB tokenizer + attention-mask wiring in the Swift engine, and its
+  int4 quality is unverified until CI runs it.
+
 ## Open
 - [ ] Retire the pinned contrast expectation (`XCTExpectFailure`) after a light-mode visual check
