@@ -78,7 +78,7 @@ struct ContentView: View {
         if case .failed = p.modelsState { return .red }
         switch p.status {
         case .error: return .red
-        case .idle: return p.modelsState.isActive ? Self.ok(colorScheme) : Self.wait(colorScheme)
+        case .idle: return p.isReady ? Self.ok(colorScheme) : Self.wait(colorScheme)
         case .listening, .translating, .speaking: return Self.ok(colorScheme)
         }
     }
@@ -99,7 +99,7 @@ struct ContentView: View {
         if p.lastError != nil { return "ERROR" }
         if case .failed = p.modelsState { return "MODELS FAILED" }
         switch p.status {
-        case .idle: return p.modelsState.isActive ? "READY" : "STARTING…"
+        case .idle: return p.isReady ? "READY" : "STARTING…"
         case .listening: return "LISTENING"
         case .translating: return "TRANSLATING"
         case .speaking: return "SPEAKING"

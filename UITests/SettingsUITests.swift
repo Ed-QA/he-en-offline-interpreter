@@ -94,7 +94,7 @@ final class SettingsUITests: XCTestCase {
         // a snapshot per pass): the earlier scan (10 swipes down + 10 up per row, then a snapshot
         // per pass) took 110 s and hit the per-test allowance in CI. It still scrolls first, because
         // the dark-mode run uses large text, where even these rows start below the fold.
-        for id in ["languagePicker", "audioRouteRow", "voicePicker", "rateSlider", "testVoice", "gateModePicker"] {
+        for id in ["languagePicker", "micPicker", "outputPicker", "voicePicker", "rateSlider", "testVoice", "gateModePicker"] {
             XCTAssertTrue(scrollTo(app, id).waitForExistence(timeout: 5),
                           "\(id) is missing from Settings")
         }

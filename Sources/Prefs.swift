@@ -24,6 +24,36 @@ enum Prefs {
     static let targetKey = "heen.target"
     static let voiceKeyUK = "heen.voice.uk"
     static let rateKeyUK = "heen.rate.uk"
+    static let micKey = "heen.micUID"
+    static let outputKey = "heen.outputChoice"
+
+    /// The microphone the user picked (a port uid); `nil` means "let iOS choose".
+    static var micUID: String? {
+        get { store.string(forKey: micKey) }
+        set {
+            if let newValue { store.set(newValue, forKey: micKey) }
+            else { store.removeObject(forKey: micKey) }
+        }
+    }
+
+    /// The output the user picked, stored as text so it survives a launch.
+    static var outputChoice: AudioRoute.Output {
+        get {
+            guard let raw = store.string(forKey: outputKey) else { return .system }
+            if raw == "speaker" { return .speaker }
+            if raw.hasPrefix("connected:") {
+                return .connected(String(raw.dropFirst("connected:".count)))
+            }
+            return .system
+        }
+        set {
+            switch newValue {
+            case .system: store.set("system", forKey: outputKey)
+            case .speaker: store.set("speaker", forKey: outputKey)
+            case .connected(let uid): store.set("connected:\(uid)", forKey: outputKey)
+            }
+        }
+    }
 
     private static func voiceKey(for language: TargetLanguage) -> String {
         language == .en ? voiceKey : voiceKeyUK

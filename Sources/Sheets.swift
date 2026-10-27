@@ -64,9 +64,14 @@ struct LogSheet: View {
                     Button { dismiss() } label: { Label("Close", systemImage: "xmark") }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    // Send logs is a list row now (see the first Section): toolbar items report a
-                    // 36 pt accessibility frame, under the 44 pt tap-target rule.
-                    EmptyView()
+                    Button(role: .destructive) {
+                        p.clearLogs()
+                        trace = Pipeline.traceTail()
+                        logURL = p.writeLogFile()
+                    } label: {
+                        Label("Clear logs", systemImage: "trash")
+                    }
+                    .accessibilityIdentifier("clearLogs")
                 }
             }
             .onAppear {

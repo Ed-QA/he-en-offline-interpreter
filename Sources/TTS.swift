@@ -23,13 +23,19 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
     func speak(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        // Re-assert a speaker-friendly session right before talking. The recognizer
-        // keeps .playAndRecord alive, and without this the synthesizer can end up
-        // routed to the receiver (earpiece) or heavily ducked — i.e. inaudible.
+        // Re-assert a speaker-friendly session right before talking. The recognizer keeps
+        // .playAndRecord alive, and without this the synthesizer can end up heavily ducked.
+        // IMPORTANT: no `overrideOutputAudioPort` here — forcing the speaker was what sent every
+        // sentence to the phone even with earbuds connected. The route stays whatever iOS chose
+        // (earbuds, Bluetooth, CarPlay…) or whatever Settings selected.
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, mode: .default,
-                                 options: [.defaultToSpeaker, .allowBluetoothA2DP, .duckOthers])
-        try? session.overrideOutputAudioPort(.speaker)
+        // Only set the category if it is not already right: re-setting it can drop the preferred
+        // microphone the user selected.
+        if session.category != .playAndRecord {
+            try? session.setCategory(.playAndRecord, mode: .default,
+                                     options: [.defaultToSpeaker, .allowBluetoothA2DP,
+                                               .allowBluetooth, .duckOthers])
+        }
         try? session.setActive(true)
         if cachedVoice == nil { cachedVoice = Self.voice(for: voiceIdentifier) ?? Self.defaultVoice(for: language) }
         let utterance = AVSpeechUtterance(string: trimmed)

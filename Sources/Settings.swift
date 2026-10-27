@@ -22,8 +22,19 @@ struct SettingsSheet: View {
                         }
                     }
                     .accessibilityIdentifier("languagePicker")
-                    LabeledContent("Audio", value: p.audioRouteSummary.isEmpty ? "—" : p.audioRouteSummary)
-                        .accessibilityIdentifier("audioRouteRow")
+                    Picker("Microphone", selection: $p.micUID) {
+                        Text("Automatic").tag(String?.none)
+                        ForEach(AudioRoute.inputOptions(), id: \.uid) { port in
+                            Text(port.portName).tag(String?.some(port.uid))
+                        }
+                    }
+                    .accessibilityIdentifier("micPicker")
+                    Picker("Output", selection: $p.outputChoice) {
+                        ForEach(AudioRoute.outputOptions(), id: \.self) { choice in
+                            Text(AudioRoute.label(choice)).tag(choice)
+                        }
+                    }
+                    .accessibilityIdentifier("outputPicker")
                     Picker("Voice", selection: $p.voiceIdentifier) {
                         ForEach(Speaker.voices(for: p.target), id: \.identifier) { v in
                             Text("\(v.name) · \(v.language) · \(Speaker.qualityLabel(v))")

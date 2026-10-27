@@ -40,6 +40,15 @@ final class Pipeline: ObservableObject {
     @Published var gateMode: GateMode = Prefs.gateMode {
         didSet { gate.mode = gateMode; Prefs.gateMode = gateMode }
     }
+    /// The two audio choices, kept separate: which microphone to listen on and where the
+    /// translation comes out. Both are applied through the documented `AVAudioSession` calls and
+    /// remembered on the device.
+    @Published var micUID: String? = Prefs.micUID {
+        didSet { Prefs.micUID = micUID; AudioRoute.applyInput(micUID) }
+    }
+    @Published var outputChoice: AudioRoute.Output = Prefs.outputChoice {
+        didSet { Prefs.outputChoice = outputChoice; AudioRoute.applyOutput(outputChoice) }
+    }
     /// What iOS is really using for sound right now. It is read from the session and refreshed by
     /// the system's own route-change notification, so the app never guesses and never polls.
     @Published var audioRouteSummary = ""
@@ -66,6 +75,9 @@ final class Pipeline: ObservableObject {
     @Published var sttStatus = "checking…"
     @Published var engineStatus = "checking…"
     @Published var engineReady = false
+    /// True only when the selected language's translation engine is loaded and usable. The status
+    /// light is green on this, so it can never be green while models are still loading or missing.
+    var isReady: Bool { engineReady && modelsState.isActive }
     @Published var lastError: String?
     @Published var lastGateReason = ""
     @Published var voiceSampleProgress: String?
@@ -263,18 +275,9 @@ final class Pipeline: ObservableObject {
             _ = diacritize("שלום, מה שלומך?")
             Self.trace("warmup nikud \(Int(Date().timeIntervalSince(tNikud) * 1000)) ms")
         }
-        // v0.3: launch == live. The interpreter starts listening by itself so the
-        // device never needs a button tap to begin working.
-        // UI-test hook: the simulator has no usable microphone and a permission alert would
-        // block automated screenshots, so `-HEENUITest` keeps the app prepared but idle.
-        // The unit-test host runs the same binary without that flag, so it is detected too: a
-        // test run must never start the microphone or raise the system permission alert.
-        if Self.isUITest || Self.isRunningTests {
-            Self.trace("auto-start skipped (\(Self.isRunningTests ? "test host" : "-HEENUITest"))")
-            return
-        }
-        Self.trace("auto-start after prepare")
-        start()
+        // The app never starts listening on its own: the user presses the wide Start button.
+        // (A test run must never grab the microphone or raise the permission alert either.)
+        Self.trace("prepare done — waiting for Start")
     }
 
     /// Runs one real Hebrew→English translation on the loaded model so the header can

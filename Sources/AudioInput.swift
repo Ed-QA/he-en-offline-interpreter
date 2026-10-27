@@ -24,10 +24,15 @@ final class MicrophoneInput: AudioInput {
     func start() throws {
         let session = AVAudioSession.sharedInstance()
         // NOTE: `.voiceChat` turns on voice-processing (AEC/AGC) which silences or badly ducks
-        // AVSpeechSynthesizer output. `.default` keeps the mic live while English plays loud.
+        // AVSpeechSynthesizer output. `.default` keeps the mic live while the translation plays.
+        // `.allowBluetooth` is what makes a Bluetooth headset usable as the microphone at all;
+        // `.allowBluetoothA2DP` keeps high-quality audio going out to those same earbuds.
         try session.setCategory(.playAndRecord, mode: .default,
-                                options: [.defaultToSpeaker, .allowBluetoothA2DP, .duckOthers])
+                                options: [.defaultToSpeaker, .allowBluetoothA2DP,
+                                          .allowBluetooth, .duckOthers])
         try session.setActive(true, options: .notifyOthersOnDeactivation)
+        // The saved microphone/output choices can only be applied once the session is active.
+        AudioRoute.applySaved()
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)

@@ -85,7 +85,10 @@ extension Pipeline {
         out += "\n== conversation (\(log.count)) ==\n"
         for e in log {
             out += "[\(DateFormatter.logStamp.string(from: e.date))]\(e.forced ? " (incomplete)" : "")\n"
-            out += "HE: \(e.hebrew)\n"
+            // Unpointed Hebrew on purpose: with the nikud in place a plain-text log turns into a
+            // field of stray combining marks. The pointed text is what the app speaks; the log
+            // needs to be readable.
+            out += "HE: \(TextUtil.stripNikud(e.hebrew))\n"
             out += "EN: \(e.english)\n\n"
         }
         out += "== trace (Documents/live.log, last 400 lines) ==\n"
@@ -108,6 +111,22 @@ extension Pipeline {
             lastError = error.localizedDescription
             return nil
         }
+    }
+
+    /// Deletes the trace file and every written report, and empties the on-screen conversation.
+    /// Backs the "Clear logs" control inside the log sheet.
+    func clearLogs() {
+        let fm = FileManager.default
+        let dir = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        try? fm.removeItem(at: dir.appendingPathComponent("live.log"))
+        let entries = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        for url in entries where url.lastPathComponent.hasPrefix("log-") && url.pathExtension == "txt" {
+            try? fm.removeItem(at: url)
+        }
+        log.removeAll()
+        Self.lastTracedPartial = ""
+        Self.resetTrace()
+        Self.trace("logs cleared by the user")
     }
 
     /// Deletes all but the newest `keeping` reports. The timestamped file names sort, so no
