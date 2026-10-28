@@ -224,10 +224,12 @@ def report_fp32_weight(dst):
 def quantize():
     """int8 for the phone: 3.1 GB fp32 is not something to carry in an app bundle.
 
-    `activation_type` is not decoration. `quantize_dynamic` defaults to uint8 activations, and in
-    that mode the quantizer skips `Gather` — which is where the decoder's 51897x1280 token embedding
-    lives: 265 MB, the single largest thing in the model that is not int8. int8 activations are what
-    let the embedding be quantized too.
+    Dynamic quantization is MatMul-shaped by design. `quantize_dynamic` hard-codes uint8 activations
+    (onnxruntime/python/tools/quantization/quantize.py: "dynamic activation only supports uint8"),
+    and under uint8 activations its Gather quantizer skips the node outright — so the decoder's
+    51897x1280 token embedding stays fp32. That is 265 MB of the file, and the reason the decoder
+    comes out at 426.8 MB where ~230 MB looks reachable. It is not reachable through this API; the
+    fp32 report below names it in the log so the size is never a mystery again.
     """
     from onnxruntime.quantization import quantize_dynamic, QuantType
     for name in ["encoder_model.onnx", "decoder_model.onnx"]:
@@ -238,7 +240,7 @@ def quantize():
             continue
         log(f"quantizing {name}")
         t0 = time.time()
-        quantize_dynamic(src, dst, weight_type=QuantType.QInt8, activation_type=QuantType.QInt8)
+        quantize_dynamic(src, dst, weight_type=QuantType.QInt8)
         log(f"  {os.path.getsize(src) / 1e6:.1f} MB fp32 -> "
             f"{os.path.getsize(dst) / 1e6:.1f} MB int8 in {time.time() - t0:.0f}s")
         report_fp32_weight(dst)
