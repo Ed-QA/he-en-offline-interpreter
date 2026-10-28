@@ -165,6 +165,29 @@ def convert():
                 fh.write(line.strip() + "\n")
         log(f"tokens.txt: {len(lines)} tokens")
 
+        # sherpa-onnx indexes its token table by the id the model emits, so the table has to reach as
+        # far as the vocabulary does. Whisper's tiktoken file stops short of some fine-tunes — this
+        # checkpoint's vocabulary is 51897 entries against the file's ~51865 — and an id with no line
+        # is an id the runtime cannot look up. The padding entries are never emitted; they exist so
+        # that no id the model can produce is missing. They are base64 like every other line, because
+        # that is the form the file uses.
+        import base64 as _b64
+        from transformers import WhisperConfig
+        n_vocab = WhisperConfig.from_pretrained(RAW).vocab_size
+        have = set()
+        with open(tokens_path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) == 2 and parts[1].isdigit():
+                    have.add(int(parts[1]))
+        missing = [i for i in range(n_vocab) if i not in have]
+        if missing:
+            with open(tokens_path, "a", encoding="utf-8") as fh:
+                for i in missing:
+                    token = _b64.b64encode(f"<unused_{i}>".encode()).decode()
+                    fh.write(f"{token} {i}\n")
+            log(f"tokens.txt padded with {len(missing)} ids the checkpoint has beyond the tiktoken file")
+
     for name in WANTED:
         path = os.path.join(OUT, name)
         if not os.path.exists(path):
@@ -226,29 +249,53 @@ def stamp_encoder_metadata():
     come from the checkpoint's own config and tokenizer — the same ones sherpa-onnx's
     scripts/whisper/export-onnx.py writes.
     """
+    import base64
     import onnx
+    import re
     from transformers import WhisperConfig, WhisperTokenizer
 
     path = os.path.join(OUT, "encoder_model.int8.onnx")
     config = WhisperConfig.from_pretrained(RAW)
     # The *slow* tokenizer on purpose: half the Hebrew checkpoints on Hugging Face ship vocab.json
-    # and merges.txt but no tokenizer.json, and the fast one needs tokenizer.json. The slow one is
-    # a port of Whisper's own tokenizer and exposes the same ids.
+    # and merges.txt but no tokenizer.json, and the fast one needs tokenizer.json.
     tokenizer = WhisperTokenizer.from_pretrained(RAW)
 
-    # blank_id is the id of the space token ("Ġ" in GPT-2 byte-level BPE). Read it from the file we
-    # just wrote instead of asking the tokenizer, whose encode() adds the special tokens by default.
+    def token_id(token):
+        """Special-token ids by name. The tokenizer's convenience attributes differ between
+        transformers versions (`.sot` does not exist on 4.46); the vocabulary never does."""
+        value = tokenizer.convert_tokens_to_ids(token)
+        if value is None or value == tokenizer.unk_token_id:
+            raise SystemExit(f"[prepare_stt_nikud] {token} is not in this tokenizer")
+        return value
+
+    # blank_id is the id of the space token. tokens.txt is Whisper's tiktoken file, whose first field
+    # is the token's bytes in base64 (that is the form the runtime expects), so the space is found by
+    # decoding rather than by looking for a spelling.
     space_id = None
     with open(os.path.join(OUT, "tokens.txt"), "r", encoding="utf-8") as fh:
         for line in fh:
             parts = line.split()
-            if len(parts) == 2 and parts[0] == "Ġ":
-                space_id = int(parts[1])
-                break
+            if len(parts) == 2:
+                try:
+                    if base64.b64decode(parts[0]) == b" ":
+                        space_id = int(parts[1])
+                        break
+                except Exception:
+                    continue
     if space_id is None:
         raise SystemExit("[prepare_stt_nikud] tokens.txt has no space token - cannot set blank_id")
 
-    codes = list(tokenizer.all_language_codes)
+    # The language tokens and their codes, taken from the vocabulary itself: every `<|xx|>` entry is a
+    # language, sorted by id so the two lists stay aligned. sherpa-onnx builds its language map from
+    # exactly these, and refuses to work with the checkpoint's language without them.
+    pairs = sorted(
+        ((tok, tid) for tok, tid in tokenizer.get_vocab().items()
+         if re.fullmatch(r"<\|[a-z]{2,3}\|>", tok)),
+        key=lambda pair: pair[1],
+    )
+    sot = token_id("<|startoftranscript|>")
+    transcribe = token_id("<|transcribe|>")
+    no_timestamps = token_id("<|notimestamps|>")
     meta = {
         "model_type": "whisper",
         "version": "1",
@@ -262,22 +309,22 @@ def stamp_encoder_metadata():
         "n_text_state": config.d_model,
         "n_text_head": config.decoder_attention_heads,
         "n_text_layer": config.decoder_layers,
-        "sot": tokenizer.sot,
-        "eot": tokenizer.eot,
+        "sot": sot,
+        "eot": token_id("<|endoftext|>"),
         "blank_id": space_id,
-        "translate": tokenizer.translate,
-        "transcribe": tokenizer.transcribe,
-        "no_timestamps": tokenizer.no_timestamps,
-        "no_speech": tokenizer.no_speech,
-        "sot_prev": tokenizer.sot_prev,
-        "sot_lm": tokenizer.sot_lm,
-        "is_multilingual": int(len(codes) > 0),
-        "sot_index": list(tokenizer.sot_sequence).index(tokenizer.sot),
-        "sot_sequence": ",".join(str(t) for t in tokenizer.sot_sequence),
-        "all_language_tokens": ",".join(str(t) for t in tokenizer.all_language_tokens),
-        "all_language_codes": ",".join(codes),
-        "non_speech_tokens": ",".join(str(t) for t in tokenizer.non_speech_tokens),
+        "translate": token_id("<|translate|>"),
+        "transcribe": transcribe,
+        "no_timestamps": no_timestamps,
+        "no_speech": token_id("<|nospeech|>"),
+        "sot_prev": token_id("<|startofprev|>"),
+        "sot_lm": token_id("<|startoflm|>"),
+        "is_multilingual": int(len(pairs) > 0),
+        "sot_index": 0,
+        "sot_sequence": ",".join(str(t) for t in (sot, token_id("<|en|>"), transcribe, no_timestamps)),
+        "all_language_tokens": ",".join(str(tid) for _, tid in pairs),
+        "all_language_codes": ",".join(tok[2:-2] for tok, _ in pairs),
     }
+    codes = meta["all_language_codes"].split(",")
 
     model = onnx.load(path)
     while len(model.metadata_props):

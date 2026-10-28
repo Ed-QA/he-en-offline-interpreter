@@ -174,13 +174,22 @@ def export(model_dir, out_dir):
     log(f"n_mels={config.num_mel_bins} n_audio_layer={config.encoder_layers} "
         f"n_text_layer={config.decoder_layers} n_vocab={config.vocab_size}")
 
+    def token_id(token):
+        """Special-token ids by name. The tokenizer's convenience attributes differ between
+        transformers versions (`.sot` does not exist on 4.46); the vocabulary never does."""
+        value = tokenizer.convert_tokens_to_ids(token)
+        if value is None or value == tokenizer.unk_token_id:
+            raise SystemExit(f"[whisper-export] {token} is not in this tokenizer")
+        return value
+
     encoder = EncoderCrossKV(model).eval()
     decoder = DecoderWithTensorCache(model).eval()
 
     # A full 30 s window of silence drives the shapes; the dynamic axes let the runtime send anything.
     mel = torch.zeros(1, config.num_mel_bins, 30 * 100)
-    prompt = torch.tensor([[tokenizer.sot, tokenizer.convert_tokens_to_ids("<|he|>"),
-                            tokenizer.transcribe, tokenizer.no_timestamps]], dtype=torch.int64)
+    prompt = torch.tensor([[token_id("<|startoftranscript|>"), token_id("<|he|>"),
+                            token_id("<|transcribe|>"), token_id("<|notimestamps|>")]],
+                          dtype=torch.int64)
     cross_k, cross_v = self_check(model, encoder, decoder, mel, prompt)
     log(f"cross K/V shape: {tuple(cross_k.shape)}")
 
