@@ -119,7 +119,9 @@ enum Prefs {
     static func reset() {
         store.removeObject(forKey: voiceKey)
         store.removeObject(forKey: rateKey)
-        store.removeObject(forKey: gateKey)
+        // `heen.gateMode` is not written any more; it is removed so an install that predates the
+        // chunking-mode removal does not keep a stale value around forever.
+        store.removeObject(forKey: "heen.gateMode")
         store.removeObject(forKey: targetKey)
         store.removeObject(forKey: voiceKeyUK)
         store.removeObject(forKey: rateKeyUK)
