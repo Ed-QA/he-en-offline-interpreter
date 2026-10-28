@@ -25,6 +25,81 @@ def log(msg):
     print(f"[check-stt-nikud] {msg}", flush=True)
 
 
+def report_onnx_greedy(folder, samples):
+    """Decode the same audio a second way, with my own greedy loop on the ONNX graphs.
+
+    sherpa-onnx returning nothing proves only that something in the chain is wrong. This loop uses
+    no sherpa code: it runs the encoder, then the decoder token by token, so the two results
+    side by side name the broken side.
+
+      both empty       -> the graphs or the checkpoint itself
+      this one speaks  -> the metadata sherpa reads (n_mels, prompt ids, token table)
+
+    It prints the decoder's input signature first: the loop only runs when the graph has the
+    signature this exporter is supposed to produce, and the names are the evidence either way.
+    """
+    import numpy as np
+    import onnxruntime as ort
+
+    encoder = os.path.join(folder, "encoder_model.int8.onnx")
+    decoder = os.path.join(folder, "decoder_model.int8.onnx")
+
+    meta = {}
+    enc = ort.InferenceSession(encoder, providers=["CPUExecutionProvider"])
+    for prop in enc.get_modelmeta().custom_metadata_map.items():
+        meta[prop[0]] = prop[1]
+    dec = ort.InferenceSession(decoder, providers=["CPUExecutionProvider"])
+    log("decoder inputs: " + ", ".join(f"{i.name}{i.shape}" for i in dec.get_inputs()))
+    log("decoder outputs: " + ", ".join(o.name for o in dec.get_outputs()))
+    log("encoder inputs: " + ", ".join(f"{i.name}{i.shape}" for i in enc.get_inputs()))
+
+    try:
+        from transformers import WhisperFeatureExtractor
+
+        extractor = WhisperFeatureExtractor.from_pretrained(
+            os.environ.get("STT_NIKUD_RAW", "whisper_nikud_raw"))
+        feats = extractor(samples, sampling_rate=16_000, return_tensors="np").input_features
+    except Exception as exc:
+        log(f"no feature extractor ({type(exc).__name__}: {exc}) - skipping the second decode")
+        return
+    log(f"features {feats.shape} (expected [1, {meta.get('n_mels', '?')}, 3000])")
+
+    enc_out = enc.run(None, {enc.get_inputs()[0].name: feats.astype(np.float32)})
+    names = [o.name for o in enc.get_outputs()]
+    cross_k = enc_out[names.index("cross_k")]
+    cross_v = enc_out[names.index("cross_v")]
+
+    n_layer = int(meta.get("n_text_layer", 0))
+    n_ctx = int(meta.get("n_text_ctx", 0))
+    n_state = int(meta.get("n_text_state", 0))
+    self_k = np.zeros((n_layer, 1, n_ctx, n_state), dtype=np.float32)
+    self_v = np.zeros_like(self_k)
+
+    prompt = [int(x) for x in meta["sot_sequence"].split(",")]
+    eot = int(meta["eot"])
+    tokens = list(prompt)
+    text = ""
+    for _ in range(20):
+        feeds = {
+            "tokens": np.array([[tokens[-1]]], dtype=np.int64),
+            "self_k": self_k,
+            "self_v": self_v,
+            "cross_k": cross_k,
+            "cross_v": cross_v,
+            "offset": np.array([len(tokens) - 1], dtype=np.int64),
+        }
+        outs = dec.run(None, {k: v for k, v in feeds.items()
+                              if k in {i.name for i in dec.get_inputs()}})
+        logits = outs[0][0, -1]
+        nxt = int(np.argmax(logits))
+        if nxt == eot:
+            break
+        tokens.append(nxt)
+        text += f" {nxt}"
+    log("second decode, token ids: " + (text.strip() or "(nothing)"))
+    log(f"prompt ids used: {prompt}")
+
+
 def make_hebrew_wav(path):
     aiff = path + ".aiff"
     try:
@@ -91,6 +166,7 @@ def main():
         log("warning: no text came back - the model loaded, but check the checkpoint")
     elif not pointed:
         log("warning: text came back without nikud - check which checkpoint was downloaded")
+    report_onnx_greedy(args.folder, samples)
     os.remove(args.wav)
     return 0
 

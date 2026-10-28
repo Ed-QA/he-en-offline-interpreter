@@ -198,6 +198,78 @@ def report_fp32_weight(dst):
         log(f"    largest fp32: {name} ({size / 1e6:.1f} MB)")
 
 
+def probe_fp32():
+    """Decode Hebrew with the *unquantized* export, before quantization touches anything.
+
+    The empty decode could be the export, the metadata, the checkpoint or the int8 conversion, and I
+    have been guessing between them. This runs first, on the fp32 files, with the same runtime the
+    app links: if fp32 speaks and int8 is empty, quantization is what broke it; if fp32 is also
+    empty, the export or the checkpoint is, and the int8 step is innocent.
+    """
+    try:
+        import sherpa_onnx
+    except Exception as exc:
+        log(f"fp32 probe skipped: {exc}")
+        return
+
+    encoder = os.path.join(OUT, "encoder_model.onnx")
+    decoder = os.path.join(OUT, "decoder_model.onnx")
+    tokens = os.path.join(OUT, "tokens.txt")
+    if not all(os.path.exists(p) for p in (encoder, decoder, tokens)):
+        log("fp32 probe skipped: an fp32 file is missing")
+        return
+
+    try:
+        recognizer = sherpa_onnx.OfflineRecognizer.from_whisper(
+            encoder=encoder, decoder=decoder, tokens=tokens,
+            language="he", task="transcribe", num_threads=2, debug=False)
+    except Exception as exc:
+        log(f"fp32 probe could not build the recogniser: {type(exc).__name__}: {exc}")
+        return
+
+    wav = "hebrew_fp32_probe.wav"
+    make_probe_wav(wav)
+    try:
+        import array
+        import wave
+        with wave.open(wav, "rb") as w:
+            frames = w.readframes(w.getnframes())
+        samples = [s / 32768.0 for s in array.array("h", frames)]
+        stream = recognizer.create_stream()
+        stream.accept_waveform(16_000, samples)
+        recognizer.decode_stream(stream)
+        text = stream.result.text.strip()
+        marks = sum(1 for c in text if 0x05B0 <= ord(c) <= 0x05C7)
+        log(f"fp32 decode: {text!r} ({marks} nikud marks)")
+        if not text:
+            log("fp32 is empty too - the export or the checkpoint, not the int8 conversion")
+    except Exception as exc:
+        log(f"fp32 probe failed while decoding: {type(exc).__name__}: {exc}")
+    finally:
+        if os.path.exists(wav):
+            os.remove(wav)
+
+
+def make_probe_wav(path):
+    """A fixed Hebrew sentence at 16 kHz mono, spoken by the macOS voice; silence if it is absent."""
+    import subprocess
+    import wave
+
+    aiff = path + ".aiff"
+    try:
+        subprocess.run(["say", "-v", "Carmit", "-o", aiff,
+                        "שלום, מה שלומך? אני מדבר עברית"], check=True)
+        subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", aiff, path],
+                       check=True)
+        os.remove(aiff)
+    except Exception:
+        with wave.open(path, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16_000)
+            w.writeframes(b"\x00\x00" * 32_000)
+
+
 def quantize():
     """int8 for the phone: 3.1 GB fp32 is not something to carry in an app bundle.
 
@@ -250,7 +322,7 @@ def uses_external_data(path):
     return any(i.data_location == onnx.TensorProto.EXTERNAL for i in model.graph.initializer)
 
 
-def stamp_encoder_metadata():
+def stamp_encoder_metadata(name="encoder_model.int8.onnx"):
     """Write the metadata sherpa-onnx reads out of the encoder. Without it the app dies on Start.
 
     sherpa-onnx infers nothing from the graph: `InitEncoder` reads n_mels, n_text_layer, n_text_ctx,
@@ -267,7 +339,7 @@ def stamp_encoder_metadata():
     import re
     from transformers import WhisperConfig, WhisperTokenizer
 
-    path = os.path.join(OUT, "encoder_model.int8.onnx")
+    path = os.path.join(OUT, name)
     config = WhisperConfig.from_pretrained(RAW)
     # The *slow* tokenizer on purpose: half the Hebrew checkpoints on Hugging Face ship vocab.json
     # and merges.txt but no tokenizer.json, and the fast one needs tokenizer.json.
@@ -399,6 +471,11 @@ def main():
     download()
     log(f"checkpoint in use: {CHOSEN}")
     convert()
+    # Stamp the fp32 encoder first so the probe can load it: sherpa-onnx refuses to build a
+    # recogniser without the metadata, so without this the fp32 decode below could never run and the
+    # question "export, metadata, checkpoint or quantization?" would stay unanswered.
+    stamp_encoder_metadata("encoder_model.onnx")
+    probe_fp32()
     quantize()
     stamp_encoder_metadata()
     write_meta()
