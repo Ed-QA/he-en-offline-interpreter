@@ -31,8 +31,8 @@ jobs:
           python -m pip install --quiet huggingface_hub
           python Tools/prepare_stt.py
       - name: Prepare Hebrew ASR with nikud (Whisper-Nikudon, int8)
-        # Gated checkpoint: without the HF_TOKEN secret the script skips itself with a warning and
-        # the simulator build and its tests still run, proving the code compiles.
+        # Ungated checkpoints only, so this step needs no token: the simulator build and its tests
+        # always run against a real prepared model.
         # The recognizer that emits pointed Hebrew straight from the audio. It is the app's only
         # recognizer: the post-hoc diacritizer was deleted.
         run: |

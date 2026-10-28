@@ -103,6 +103,36 @@ final class GateAndTextTests: XCTestCase {
         XCTAssertEqual(TextUtil.stripNikud("שלום"), "שלום")
     }
 
+    /// The two lanes point the shared 0.3 s independently, so the same word comes back as
+    /// `שָׁלוֹם` from one lane and `שלום` from the other. Compared raw the overlap is invisible and
+    /// the word is spoken twice; the clearer has to compare the bare form.
+    func testOverlapRemovalIsNotFooledByNikud() {
+        XCTAssertEqual(TextUtil.dropOverlap(previous: "שָׁלוֹם מָה שְׁלוֹמְךָ",
+                                            next: "מה שלומך היום"), "היום")
+        XCTAssertEqual(TextUtil.dropOverlap(previous: "שלום מה שלומך",
+                                            next: "שָׁלוֹם מָה שְׁלוֹמְךָ"), "")
+        XCTAssertEqual(TextUtil.mergeOverlap("שָׁלוֹם מָה", "מה שְׁלוֹמְךָ"), "שָׁלוֹם מָה שְׁלוֹמְךָ")
+        XCTAssertEqual(TextUtil.removePrefix("שָׁלוֹם מָה שְׁלוֹמְךָ", prefix: "שלום מה"), "שְׁלוֹמְךָ")
+        XCTAssertTrue(TextUtil.sameWord("שָׁלוֹם", "שלום"))
+        XCTAssertFalse(TextUtil.sameWord("שלום", "שלומה"))
+    }
+
+    /// The completeness rules are written unpointed. A pointed sentence must hit the same rules:
+    /// a dangling connector may not be emitted as complete, and a finished pointed sentence must be.
+    func testTheGateAppliesItsHebrewRulesToPointedText() {
+        let gate = HebrewCompletenessGate(mode: .balanced)
+        let dangling = gate.evaluate("אֲנִי רוֹצֶה לָלֶכֶת אֶל",
+                                     trailingSilence: 0, isSTTFinal: false, pendingAge: 0)
+        XCTAssertFalse(dangling.emit,
+                       "a pointed sentence ending in a connector was called complete: \(dangling)")
+        let finished = gate.evaluate("אֲנִי רוֹצֶה לָלֶכֶת הַבַּיְתָה.",
+                                     trailingSilence: 0, isSTTFinal: false, pendingAge: 0)
+        XCTAssertTrue(finished.emit, "a finished pointed sentence was not emitted: \(finished)")
+        let prefix = gate.evaluate("אֲנִי רוֹצֶה לָלֶכֶת וְ",
+                                   trailingSilence: 0, isSTTFinal: true, pendingAge: 0)
+        XCTAssertFalse(prefix.emit, "a bare pointed prefix ended a sentence: \(prefix)")
+    }
+
     /// Item 5: the translator's input contract is pointed Hebrew. The points survive wherever the
     /// model's own vocabulary can carry them; only a word the points would shatter falls back to
     /// its unpointed form — and that decision is made by the engine, not by the pipeline.

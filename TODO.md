@@ -109,15 +109,14 @@ failure messages out of the result bundle):
 
 ## Priority 0 — STT that outputs Hebrew with nikud (found 2026-10-26)
 
-- **Candidate: `MayBog/whisper-hebrew-nikud-v1`** (Nikudon project, MaayanBogin). Its own words:
-  *"directly transcribes Hebrew speech to text with full diacritical marks (niqqud) in a single
-  step, eliminating the traditional two-step pipeline of transcription followed by nikud
-  restoration."* Base model: **ivrit-ai/whisper-large-v3-turbo** (the strongest Hebrew ASR there
-  is), i.e. Whisper large-v3-turbo, 809M params, `model.safetensors` = 3.09 GB fp32 → ~0.8 GB int8.
+- **Candidate dropped: `MayBog/whisper-hebrew-nikud-v1`** — gated (needs an account and an accepted
+  licence), so it is out: no token will ever be used. Model in use is the ungated
+  `cantillation/Teamim-IvritAI-large-v3-turbo-*` checkpoint (see CANDIDATES in
+  `Tools/prepare_stt_nikud.py`), same base model (ivrit-ai/whisper-large-v3-turbo, 809M params,
+  3.09 GB fp32 → ~0.8 GB int8), ungated, pointed output without any token.
 - Alternatives checked: `cantillation/whisper-medium-he-teamim-*-Nikud` (WER 37 %, Torah cantillation
   — unusable for conversation), `notmax123/nikud_exps_renikud` (experiment, 0 downloads). **No
-  streaming Hebrew ASR with nikud exists** — the Nikudon roadmap lists "smaller whisper for faster
-  streaming" as still open.
+  streaming Hebrew ASR with nikud exists**.
 - Consequences of the swap: recognition becomes **offline/chunked** (VAD-segmented Whisper), so the
   live word-by-word text and the dual-stream STT design change; app grows ~+0.5 GB net (drop the
   293 MB phonikud diacritizer); per-utterance latency goes from ~0.3 s to seconds.

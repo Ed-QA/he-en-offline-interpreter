@@ -47,11 +47,16 @@ struct HebrewCompletenessGate {
         guard let lastRaw = words.last else { return Outcome(emit: false, forced: false, score: 0, reason: "empty") }
         let last = TextUtil.stripEdges(lastRaw)
         let first = TextUtil.stripEdges(words.first ?? "")
+        // Every lookup below is against unpointed word lists, and a pointed word counted in scalars
+        // is never "2 characters or fewer". The rules are matched on the bare form; the text that
+        // leaves this gate keeps its points.
+        let lastBare = TextUtil.stripNikud(last)
+        let firstBare = TextUtil.stripNikud(first)
 
         let terminal = TextUtil.hasTerminalPunctuation(text)
         let commaEnd = text.trimmingCharacters(in: .whitespaces).hasSuffix(",")
         let unbalanced = TextUtil.hasUnbalancedQuotes(text)
-        let lastIsNeverEnd = HebrewCompletenessGate.neverEnd.contains(last)
+        let lastIsNeverEnd = HebrewCompletenessGate.neverEnd.contains(lastBare)
 
         var score = 0
         var notes: [String] = []
@@ -67,15 +72,15 @@ struct HebrewCompletenessGate {
         if commaEnd { score -= 2; notes.append("comma-end") }
         if unbalanced { score -= 3; notes.append("open-quote") }
         if lastIsNeverEnd { score -= 4; notes.append("dangling:\(last)") }
-        if last.count <= 2, !terminal, !isSTTFinal { score -= 1; notes.append("tiny-tail") }
-        if HebrewCompletenessGate.subordinators.contains(first), words.count < 5, !terminal {
+        if lastBare.count <= 2, !terminal, !isSTTFinal { score -= 1; notes.append("tiny-tail") }
+        if HebrewCompletenessGate.subordinators.contains(firstBare), words.count < 5, !terminal {
             score -= 1; notes.append("open-subordinate")
         }
-        if HebrewCompletenessGate.questionWords.contains(first), (terminal || trailingSilence >= mode.silenceToEmit) {
+        if HebrewCompletenessGate.questionWords.contains(firstBare), (terminal || trailingSilence >= mode.silenceToEmit) {
             score += 1; notes.append("question-closed")
         }
         // Hebrew prefixes glued to a word are fine; a standalone prefix token is not.
-        if ["ב", "ל", "מ", "כ", "ה", "ו", "ש"].contains(last) { score -= 4; notes.append("bare-prefix") }
+        if ["ב", "ל", "מ", "כ", "ה", "ו", "ש"].contains(lastBare) { score -= 4; notes.append("bare-prefix") }
 
         let hardBlocked = lastIsNeverEnd || unbalanced
         // A real endpoint is evidence that the speaker finished: any positive score emits, so a

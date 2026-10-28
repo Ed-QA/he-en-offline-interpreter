@@ -1,8 +1,9 @@
 """Prepare the Hebrew ASR model that puts nikud in the text straight from the voice.
 
-Model: MayBog/whisper-hebrew-nikud-v1 ("Nikudon") - Whisper large-v3-turbo fine-tuned by
-ivrit-ai so that the recogniser itself emits pointed Hebrew. There is no post-hoc diacritizer in
-this app any more: the points come from the acoustic model, in the same pass as the words.
+Model: the ungated cantillation/Teamim checkpoint (first entry of CANDIDATES below) - Whisper
+large-v3-turbo fine-tuned so that the recogniser itself emits pointed Hebrew. There is no post-hoc
+diacritizer in this app any more: the points come from the acoustic model, in the same pass as the
+words. Nothing gated is used, so a build needs no account and no token.
 
 The runtime is sherpa-onnx (already linked in the app), so the PyTorch checkpoint is converted to
 sherpa-onnx's Whisper ONNX layout and quantized to int8:
@@ -23,7 +24,8 @@ import sys
 import time
 import urllib.request
 
-MODEL = "MayBog/whisper-hebrew-nikud-v1"
+MODEL = ("cantillation/Teamim-IvritAI-large-v3-turbo-new_WeightDecay-0.005_"
+         "Augmented_WithSRT_date-23-04-2025")
 OUT = "Model/WhisperNikud"
 RAW = "whisper_nikud_raw"
 CONVERTER = "https://raw.githubusercontent.com/openai/whisper/main/whisper/assets/multilingual.tiktoken"
@@ -31,46 +33,33 @@ CONVERTER = "https://raw.githubusercontent.com/openai/whisper/main/whisper/asset
 WANTED = ["encoder_model.onnx", "decoder_model.onnx", "tokens.txt"]
 
 # Every Hebrew recogniser on Hugging Face that emits nikud itself, best fit first. The first one
-# that downloads wins; a gated entry is skipped unless HF_TOKEN is present, so a rejection of the
-# top choice is not a dead end. Ratings: fit for this app (general Hebrew, speed, footprint).
+# that downloads wins. Ratings: fit for this app (general Hebrew, speed, footprint). Ungated only —
+# nothing here may need an account, a token or an accepted licence.
 CANDIDATES = [
-    {
-        "repo": "MayBog/whisper-hebrew-nikud-v1",
-        "gated": True,
-        "fit": 10,
-        "why": "whisper-large-v3-turbo, built for general Hebrew with nikud - best quality fit, "
-               "needs the model terms accepted and HF_TOKEN",
-    },
     {
         "repo": "cantillation/Teamim-IvritAI-large-v3-turbo-new_WeightDecay-0.005_"
                 "Augmented_WithSRT_date-23-04-2025",
-        "gated": False,
         "fit": 8,
-        "why": "same base as the top choice (ivrit-ai/whisper-large-v3-turbo), he-cantillation, "
-               "turbo speed, ungated - pointed output without any token",
+        "why": "same base as ivrit-ai/whisper-large-v3-turbo, he-cantillation, turbo speed, ungated",
     },
     {
         "repo": "cantillation/Teamim-large-v3-turbo_WeightDecay-0.005_Augmented_date-07-05-2025",
-        "gated": False,
         "fit": 7,
         "why": "openai/whisper-large-v3-turbo base, he-cantillation, turbo speed, ungated",
     },
     {
         "repo": "cantillation/whisper-medium-he-teamim-silsuless-ori-TrainAndVal-Nikud",
-        "gated": False,
         "fit": 6,
         "why": "whisper-medium, nikud in its own name, ungated - slower than turbo, smaller RAM",
     },
     {
         "repo": "cantillation/whisper-small-he-teamim5",
-        "gated": False,
         "fit": 4,
         "why": "whisper-small, ungated - smallest footprint that still points (approx 231 MB int8)",
     },
     {
         "repo": "cantillation/Teamim-tiny_Random-True_DropOut-0.1_WeightDecay-1e-06_"
                 "Augmented_date-27-06-2024_09-48-25",
-        "gated": False,
         "fit": 2,
         "why": "whisper-tiny, ungated - last resort, approx 36 MB int8, accuracy is poor",
     },
@@ -89,32 +78,20 @@ def log(msg):
 def download():
     """Fetch the checkpoint, tokenizer and configs into RAW.
 
-    The checkpoint is **gated** (`MayBog/whisper-hebrew-nikud-v1`, `gated: manual`): Hugging Face
-    answers 401 until a token whose owner has accepted the model's terms is presented. The token is
-    read from HF_TOKEN / HUGGING_FACE_HUB_TOKEN and is never written to disk. Downloads go through
-    huggingface_hub so shards, LFS and retries are its problem, not ours.
+    Ungated checkpoints only: every entry in CANDIDATES downloads anonymously, so a build needs no
+    account, no token and no accepted licence. Downloads go through huggingface_hub so shards, LFS
+    and retries are its problem, not ours.
     """
     from huggingface_hub import snapshot_download
 
     os.makedirs(RAW, exist_ok=True)
-    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-    if token:
-        log("using HF_TOKEN from the environment")
-    else:
-        log("no HF_TOKEN: the gated checkpoint is skipped, ungated checkpoints are used")
-        print("::warning::HF_TOKEN is not set, so the gated MayBog/whisper-hebrew-nikud-v1 "
-              "checkpoint cannot be used. This build falls back to the ungated cantillation "
-              "checkpoints listed in CANDIDATES (Tools/prepare_stt_nikud.py).", flush=True)
 
     global CHOSEN
     for rank, cand in enumerate(CANDIDATES, start=1):
         repo = cand["repo"]
-        if cand.get("gated") and not token:
-            log(f"[{rank}/{len(CANDIDATES)}] {repo} - skipped (gated, no HF_TOKEN)")
-            continue
         log(f"[{rank}/{len(CANDIDATES)}] {repo} - fit {cand['fit']}/10 - {cand['why']}")
         try:
-            snapshot_download(repo_id=repo, local_dir=RAW, token=token,
+            snapshot_download(repo_id=repo, local_dir=RAW,
                               allow_patterns=["*.json", "*.txt", "model.safetensors"])
         except Exception as exc:
             log(f"    rejected: {type(exc).__name__}: {str(exc)[:180]}")

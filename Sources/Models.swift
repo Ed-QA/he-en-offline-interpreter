@@ -56,7 +56,7 @@ enum TextUtil {
         let maxK = min(A.count, B.count)
         var k = 1
         while k <= maxK {
-            if A.suffix(k).elementsEqual(B.prefix(k)) { best = k }
+            if zip(A.suffix(k), B.prefix(k)).allSatisfy({ sameWord($0.0, $0.1) }) { best = k }
             k += 1
         }
         return (A + B.dropFirst(best)).joined(separator: " ")
@@ -71,7 +71,7 @@ enum TextUtil {
         guard !p.isEmpty, !n.isEmpty else { return next }
         var overlap = 0
         for k in stride(from: min(p.count, n.count), through: 1, by: -1) {
-            if Array(p.suffix(k)) == Array(n.prefix(k)) { overlap = k; break }
+            if zip(p.suffix(k), n.prefix(k)).allSatisfy({ sameWord($0.0, $0.1) }) { overlap = k; break }
         }
         guard overlap > 0 else { return next }
         // The cut is made on the raw string so punctuation and spacing survive untouched.
@@ -95,6 +95,14 @@ enum TextUtil {
         String(String.UnicodeScalarView(s.unicodeScalars.filter { !(0x0591...0x05C7).contains($0.value) }))
     }
 
+    /// The same word from two lanes is rarely the same string: each lane points the shared 0.3 s
+    /// independently, so it can arrive as `שָׁלוֹם` from one lane and `שלום` from the other.
+    /// Compared raw, the overlap never matches, the word is not dropped, and it is spoken twice.
+    /// Compare without the points; emit with them.
+    static func sameWord(_ a: String, _ b: String) -> Bool {
+        a == b || stripNikud(a) == stripNikud(b)
+    }
+
     static func tokenize(_ s: String) -> [String] {
         s.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).map(String.init)
     }
@@ -106,7 +114,7 @@ enum TextUtil {
         let p = tokenize(prefix)
         let t = tokenize(text)
         guard t.count >= p.count else { return text }
-        if Array(t.prefix(p.count)) == p {
+        if zip(t.prefix(p.count), p).allSatisfy({ sameWord($0.0, $0.1) }) {
             return t.dropFirst(p.count).joined(separator: " ")
         }
         return text
