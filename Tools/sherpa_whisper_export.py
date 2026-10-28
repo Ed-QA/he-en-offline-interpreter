@@ -48,7 +48,22 @@ class EncoderCrossKV(nn.Module):
         self.cross = nn.ModuleList([layer.encoder_attn for layer in model.model.decoder.layers])
 
     def forward(self, mel: Tensor):
-        hidden = self.encoder(mel).last_hidden_state  # [n_audio, T', n_state]
+        # Whisper's own encoder adds the *whole* 1500-position table, so it only accepts a full 30 s
+        # window. sherpa-onnx feeds the length the audio actually has — a 2 s window in the app is
+        # ~200 frames, 969 here — and the add then fails with "Attempting to broadcast an axis by a
+        # dimension other than 1: 969 by 1500". sherpa caught that exception and returned an empty
+        # result, which is why the recogniser answered nothing for every clip shorter than 30 s.
+        # Slice the table to the frames that exist, exactly as the runtime's own export script does
+        # (`scripts/whisper/export-onnx.py`: x + positional_embedding[:x.shape[1]]`).
+        enc = self.encoder
+        x = nn.functional.gelu(enc.conv1(mel))
+        x = nn.functional.gelu(enc.conv2(x))
+        x = x.permute(0, 2, 1)  # [n_audio, T', n_state]
+        x = x + enc.embed_positions.weight[: x.shape[1]].to(x.dtype)
+        for block in enc.layers:
+            out = block(x)
+            x = out[0] if isinstance(out, tuple) else out
+        hidden = enc.layer_norm(x)  # [n_audio, T', n_state]
         keys = [attn.k_proj(hidden) for attn in self.cross]
         values = [attn.v_proj(hidden) for attn in self.cross]
         return torch.stack(keys), torch.stack(values)

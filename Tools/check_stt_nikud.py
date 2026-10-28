@@ -163,8 +163,10 @@ def main():
     log(f"decoded: {text!r}")
     log(f"nikud in the output: {len(pointed)} marks")
     if not text:
-        log("warning: no text came back - the model loaded, but check the checkpoint")
-    elif not pointed:
+        raise SystemExit("[check-stt-nikud] the recogniser decoded nothing - refusing to ship this "
+                         "model. A model that answers silence for real speech is the bug that "
+                         "reached the phone.")
+    if not pointed:
         log("warning: text came back without nikud - check which checkpoint was downloaded")
     report_onnx_greedy(args.folder, samples)
     os.remove(args.wav)

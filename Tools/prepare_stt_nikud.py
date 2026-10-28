@@ -242,9 +242,14 @@ def probe_fp32():
         marks = sum(1 for c in text if 0x05B0 <= ord(c) <= 0x05C7)
         log(f"fp32 decode: {text!r} ({marks} nikud marks)")
         if not text:
-            log("fp32 is empty too - the export or the checkpoint, not the int8 conversion")
+            raise SystemExit(
+                "[prepare_stt_nikud] the unquantized export decoded nothing - the export is broken, "
+                "nothing is shipped")
+    except SystemExit:
+        raise
     except Exception as exc:
-        log(f"fp32 probe failed while decoding: {type(exc).__name__}: {exc}")
+        raise SystemExit(f"[prepare_stt_nikud] the unquantized export failed to decode: "
+                         f"{type(exc).__name__}: {exc}") from exc
     finally:
         if os.path.exists(wav):
             os.remove(wav)
