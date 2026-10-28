@@ -195,8 +195,40 @@ def convert():
             raise SystemExit(f"converter did not produce {path}")
 
 
+def report_fp32_weight(dst):
+    """Name the biggest fp32 initializer left in a quantized file.
+
+    What matters for the app bundle is not the total size but what stayed in fp32: int8 weights are
+    already as small as they go, and a large fp32 initializer means a node the quantizer skipped.
+    Reading it out of the log beats inferring it from the file size, which is how a 265 MB token
+    embedding sat unnoticed inside a "quantized" decoder.
+    """
+    import onnx
+
+    def nbytes(init):
+        count = 1
+        for dim in init.dims:
+            count *= dim
+        return count * 4
+
+    model = onnx.load(dst, load_external_data=False)
+    floats = [(nbytes(init), init.name) for init in model.graph.initializer
+              if init.data_type == onnx.TensorProto.FLOAT]
+    floats.sort(reverse=True)
+    total = sum(size for size, _ in floats)
+    log(f"  {len(floats)} fp32 initializers, {total / 1e6:.1f} MB in total")
+    for size, name in floats[:3]:
+        log(f"    largest fp32: {name} ({size / 1e6:.1f} MB)")
+
+
 def quantize():
-    """int8 for the phone: 3.1 GB fp32 is not something to carry in an app bundle."""
+    """int8 for the phone: 3.1 GB fp32 is not something to carry in an app bundle.
+
+    `activation_type` is not decoration. `quantize_dynamic` defaults to uint8 activations, and in
+    that mode the quantizer skips `Gather` — which is where the decoder's 51897x1280 token embedding
+    lives: 265 MB, the single largest thing in the model that is not int8. int8 activations are what
+    let the embedding be quantized too.
+    """
     from onnxruntime.quantization import quantize_dynamic, QuantType
     for name in ["encoder_model.onnx", "decoder_model.onnx"]:
         src = os.path.join(OUT, name)
@@ -206,9 +238,10 @@ def quantize():
             continue
         log(f"quantizing {name}")
         t0 = time.time()
-        quantize_dynamic(src, dst, weight_type=QuantType.QInt8)
+        quantize_dynamic(src, dst, weight_type=QuantType.QInt8, activation_type=QuantType.QInt8)
         log(f"  {os.path.getsize(src) / 1e6:.1f} MB fp32 -> "
             f"{os.path.getsize(dst) / 1e6:.1f} MB int8 in {time.time() - t0:.0f}s")
+        report_fp32_weight(dst)
 
     # Only three files may leave this step: the two int8 models and tokens.txt. Everything else in
     # Model/WhisperNikud is an input to quantization (the ~3 GB fp32 exports and the sidecar ONNX
