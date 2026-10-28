@@ -49,6 +49,39 @@ final class WhisperNikudSTT: StreamingSTT {
     /// a window without speech is never decoded at all.
     private static let speechLevel: Float = 0.008
 
+    /// What the lanes are doing, in numbers.
+    ///
+    /// Two questions the design has to answer on a phone — is the audio covered, and does the text
+    /// stay in order — cannot be answered from the source, only from a run: whether a 2.0 s window
+    /// finishes inside the 3.4 s each lane is given, and whether two lanes ever hand their text back
+    /// in the wrong order. So every window is counted here and the numbers are printed into the app's
+    /// log, where the owner can read them and send them back.
+    struct Stats {
+        var windowsCut = 0
+        var windowsDecoded = 0
+        var windowsSkippedSilent = 0
+        /// Windows waiting for a lane at the moment a new one was handed over.
+        var maxBacklog = 0
+        /// Times a window finished after a later one — the case the overlap clearer cannot see.
+        var outOfOrder = 0
+        var lastDecodeMS = 0
+        var slowestDecodeMS = 0
+        /// Audio inside the windows, in seconds. Overlap makes this exceed the time actually spoken.
+        var audioSecondsCut: Double = 0
+    }
+    private(set) var stats = Stats()
+
+    /// Where the numbers go. The pipeline points this at its own trace, so the lines land in the
+    /// app's log panel and in the log that gets sent back.
+    var trace: ((String) -> Void)?
+
+    /// Test seam: drives the lanes without a microphone and without loading the 843 MB model, and
+    /// records how long a stand-in decoder takes so ordering and backlog can be exercised on purpose.
+    private var decodeOverride: (([Float], Double) -> String?)?
+    private var lastFinishedWindow = -1
+    private var windowIndex = 0
+    private var pending = 0
+
     private let input: AudioInput
     private let lock = NSLock()
     /// Two decode lanes: window n runs on lane 0 while window n+1 runs on lane 1 — the overlapping
@@ -149,12 +182,16 @@ final class WhisperNikudSTT: StreamingSTT {
         if due {
             sinceWindow = 0
             window = ring
+            stats.windowsCut += 1
+            stats.audioSecondsCut += Double(window.count) / rate
         }
         let ended = sinceSpeech > Self.endpointSilence && !utterance.isEmpty
         lock.unlock()
 
         if !window.isEmpty, Self.hasSpeech(window) {
             decode(window: window, rate: rate)
+        } else if !window.isEmpty {
+            stats.windowsSkippedSilent += 1
         }
         if ended { flush() }
     }
@@ -177,21 +214,53 @@ final class WhisperNikudSTT: StreamingSTT {
     private func decode(window: [Float], rate: Double) {
         lock.lock()
         lane = (lane + 1) % lanes.count
-        let queue = lanes[lane]
+        let laneIndex = lane
+        let queue = lanes[laneIndex]
+        windowIndex += 1
+        let index = windowIndex
+        pending += 1
+        stats.windowsDecoded += 1
+        if pending > stats.maxBacklog { stats.maxBacklog = pending }
+        let backlog = pending
+        let override = decodeOverride
         lock.unlock()
+
         queue.async { [weak self] in
-            guard let self, let recognizer = self.recognizer else { return }
-            // A fresh stream per window: a stream keeps the audio it was given, so a reused one
-            // would hand the model this window *and* the previous one. The weights are shared —
-            // that is what lets both lanes decode at once for one copy of the model in memory.
-            let stream = recognizer.createStream()
-            stream.acceptWaveform(samples: window, sampleRate: Int(rate))
-            recognizer.decode(stream: stream)
-            let text = recognizer.getResult(stream: stream)
-                .text
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return }
-            self.take(text: text)
+            guard let self else { return }
+            let t0 = Date()
+            var text: String?
+            if let override {
+                text = override(window, rate)
+            } else if let recognizer = self.recognizer {
+                // A fresh stream per window: a stream keeps the audio it was given, so a reused one
+                // would hand the model this window *and* the previous one. The weights are shared —
+                // that is what lets both lanes decode at once for one copy of the model in memory.
+                let stream = recognizer.createStream()
+                stream.acceptWaveform(samples: window, sampleRate: Int(rate))
+                recognizer.decode(stream: stream)
+                text = recognizer.getResult(stream: stream).text
+            }
+            let ms = Int(Date().timeIntervalSince(t0) * 1000)
+
+            self.lock.lock()
+            self.pending -= 1
+            self.stats.lastDecodeMS = ms
+            if ms > self.stats.slowestDecodeMS { self.stats.slowestDecodeMS = ms }
+            // A window landing after a later one is exactly the case the overlap clearer cannot see:
+            // it compares against the last window that *finished*, not the one before it in time.
+            if index < self.lastFinishedWindow { self.stats.outOfOrder += 1 }
+            self.lastFinishedWindow = max(self.lastFinishedWindow, index)
+            let outOfOrder = self.stats.outOfOrder
+            let decoded = self.stats.windowsDecoded
+            self.lock.unlock()
+
+            self.trace?("window \(index): \(ms) ms on lane \(laneIndex), backlog \(backlog), "
+                        + "out of order \(outOfOrder) of \(decoded)")
+
+            guard let text else { return }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            self.take(text: trimmed)
         }
     }
 
@@ -256,5 +325,33 @@ final class WhisperNikudSTT: StreamingSTT {
     }
 
     /// Nothing to restart: the model is offline and keeps no rolling state.
+    // MARK: - Test seam
+
+    /// Drives the lanes without a microphone and without the 843 MB model. `decoder` stands in for
+    /// the recogniser and can be made slow on purpose, so ordering, backlog and coverage are
+    /// exercised deliberately instead of guessed at.
+    func beginForTest(decoder: @escaping ([Float], Double) -> String?) {
+        lock.lock()
+        decodeOverride = decoder
+        running = true
+        lock.unlock()
+    }
+
+    func feedForTest(_ samples: [Float], rate: Double) {
+        accept(samples, rate: rate)
+    }
+
+    /// One line for the app's log: what the lanes did, in numbers. The budget is what a lane has per
+    /// window — a window starts every `stride`, and each lane gets every second one.
+    var statsLine: String {
+        lock.lock()
+        defer { lock.unlock() }
+        let budget = Int(2 * Self.stride * 1000)
+        return "lanes: \(stats.windowsDecoded) windows decoded, \(stats.windowsSkippedSilent) skipped "
+            + "as silence, backlog max \(stats.maxBacklog), out of order \(stats.outOfOrder), "
+            + "decode last \(stats.lastDecodeMS) ms, slowest \(stats.slowestDecodeMS) ms, "
+            + "budget \(budget) ms per window"
+    }
+
     func restartIfNeeded(maxSeconds: TimeInterval) {}
 }
