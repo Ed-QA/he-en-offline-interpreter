@@ -182,11 +182,11 @@ def export(model_dir, out_dir):
 
     def token_id(token):
         """Special-token ids by name. The tokenizer's convenience attributes differ between
-        transformers versions (`.sot` does not exist on 4.46); the vocabulary never does."""
-        value = tokenizer.convert_tokens_to_ids(token)
-        if value is None or value == tokenizer.unk_token_id:
+        transformers versions (`.sot` does not exist on 4.46); the vocabulary never does. No
+        unknown-token comparison: Whisper's unknown token *is* `<|endoftext|>`."""
+        if token not in tokenizer.get_vocab():
             raise SystemExit(f"[whisper-export] {token} is not in this tokenizer")
-        return value
+        return tokenizer.convert_tokens_to_ids(token)
 
     encoder = EncoderCrossKV(model).eval()
     decoder = DecoderWithTensorCache(model).eval()

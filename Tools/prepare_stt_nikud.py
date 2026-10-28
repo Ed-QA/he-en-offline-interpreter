@@ -166,14 +166,15 @@ def convert():
         log(f"tokens.txt: {len(lines)} tokens")
 
         # sherpa-onnx indexes its token table by the id the model emits, so the table has to reach as
-        # far as the vocabulary does. Whisper's tiktoken file stops short of some fine-tunes — this
-        # checkpoint's vocabulary is 51897 entries against the file's ~51865 — and an id with no line
-        # is an id the runtime cannot look up. The padding entries are never emitted; they exist so
-        # that no id the model can produce is missing. They are base64 like every other line, because
-        # that is the form the file uses.
+        # far as the vocabulary does. The tiktoken file holds only the BPE vocabulary (50257 entries);
+        # everything above it — the language tokens, <|transcribe|>, <|notimestamps|> and Whisper's
+        # other control tokens — is an added token, and an id with no line is an id the runtime cannot
+        # look up. Those lines are written here, base64 like every other field in the file.
         import base64 as _b64
-        from transformers import WhisperConfig
+        from transformers import WhisperConfig, WhisperTokenizer
         n_vocab = WhisperConfig.from_pretrained(RAW).vocab_size
+        added = {tid: tok for tok, tid in WhisperTokenizer.from_pretrained(RAW).get_vocab().items()
+                 if tid >= 50257}
         have = set()
         with open(tokens_path, "r", encoding="utf-8") as fh:
             for line in fh:
@@ -184,9 +185,9 @@ def convert():
         if missing:
             with open(tokens_path, "a", encoding="utf-8") as fh:
                 for i in missing:
-                    token = _b64.b64encode(f"<unused_{i}>".encode()).decode()
+                    token = _b64.b64encode(added.get(i, f"<unused_{i}>").encode()).decode()
                     fh.write(f"{token} {i}\n")
-            log(f"tokens.txt padded with {len(missing)} ids the checkpoint has beyond the tiktoken file")
+            log(f"tokens.txt padded with {len(missing)} ids the checkpoint has beyond the BPE vocabulary")
 
     for name in WANTED:
         path = os.path.join(OUT, name)
@@ -262,11 +263,14 @@ def stamp_encoder_metadata():
 
     def token_id(token):
         """Special-token ids by name. The tokenizer's convenience attributes differ between
-        transformers versions (`.sot` does not exist on 4.46); the vocabulary never does."""
-        value = tokenizer.convert_tokens_to_ids(token)
-        if value is None or value == tokenizer.unk_token_id:
+        transformers versions (`.sot` does not exist on 4.46); the vocabulary never does.
+
+        No unknown-token comparison here on purpose: Whisper's unknown token *is* `<|endoftext|>`, so
+        comparing against `unk_token_id` rejects the end-of-text id itself.
+        """
+        if token not in tokenizer.get_vocab():
             raise SystemExit(f"[prepare_stt_nikud] {token} is not in this tokenizer")
-        return value
+        return tokenizer.convert_tokens_to_ids(token)
 
     # blank_id is the id of the space token. tokens.txt is Whisper's tiktoken file, whose first field
     # is the token's bytes in base64 (that is the form the runtime expects), so the space is found by
