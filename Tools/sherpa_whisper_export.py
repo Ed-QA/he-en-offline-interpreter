@@ -85,6 +85,11 @@ class DecoderWithTensorCache(nn.Module):
         scale = (self.n_state // self.n_head) ** -0.25
         qk = torch.matmul(self._heads(q) * scale, (self._heads(k) * scale).transpose(-1, -2))
         if blocked is not None:
+            # Named check instead of a cryptic broadcast error: the mask has to describe exactly the
+            # scores it is masking.
+            if tuple(blocked.shape[-2:]) != tuple(qk.shape[-2:]):
+                raise SystemExit(f"[whisper-export] the attention mask {tuple(blocked.shape)} does "
+                                 f"not fit the scores {tuple(qk.shape)}")
             qk = qk.masked_fill(blocked, float("-inf"))
         weights = F.softmax(qk.float(), dim=-1).to(q.dtype)
         return self._merge(torch.matmul(weights, self._heads(v)))
@@ -99,10 +104,11 @@ class DecoderWithTensorCache(nn.Module):
 
         # A key may be attended to when it is not in front of the query asking. Building the mask
         # from `offset` keeps this right both for a multi-token window at the start and for the
-        # single tokens that follow it.
+        # single tokens that follow it. The two leading axes are 1 so it lines up with the attention
+        # scores, which are [n_audio, n_head, n_tokens, window].
         keys = torch.arange(0, window, device=x.device)
         queries = torch.arange(0, n_tokens, device=x.device) + start
-        blocked = (keys.unsqueeze(0) > queries.unsqueeze(1)).unsqueeze(1)
+        blocked = (keys.unsqueeze(0) > queries.unsqueeze(1)).unsqueeze(0).unsqueeze(0)
 
         for i, layer in enumerate(self.decoder.layers):
             attn = layer.self_attn
