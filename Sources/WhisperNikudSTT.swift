@@ -51,8 +51,10 @@ final class WhisperNikudSTT: StreamingSTT {
 
     private let input: AudioInput
     private let lock = NSLock()
-    /// Two decode lanes: window n runs on lane 0 while window n+1 runs on lane 1. Two recognisers
-    /// working in parallel, each holding its own stream over the same model.
+    /// Two decode lanes: window n runs on lane 0 while window n+1 runs on lane 1 — the overlapping
+    /// windows are decoded in parallel so the gap between them is never left unrecognised. Each
+    /// window gets its own stream; the model weights are loaded once and shared by both lanes, so
+    /// running the two in parallel costs one copy of the model in memory, not two.
     private let lanes = [DispatchQueue(label: "heen.whisper.lane0", qos: .userInitiated),
                          DispatchQueue(label: "heen.whisper.lane1", qos: .userInitiated)]
     private var lane = 0
@@ -107,7 +109,10 @@ final class WhisperNikudSTT: StreamingSTT {
         guard missingFiles().isEmpty, let folder = folder() else { return nil }
         let base = folder.path
         var config = sherpaOnnxOfflineRecognizerConfig(
-            featConfig: sherpaOnnxFeatureConfig(sampleRate: 16_000, featureDim: 80),
+            // 128 mel bins: the large-v3 family (this checkpoint is a large-v3-turbo fine-tune) is
+            // trained on 128, not the 80 of the older Whisper sizes. The runtime takes the real
+            // number from the encoder's `n_mels` metadata; this keeps the two in step.
+            featConfig: sherpaOnnxFeatureConfig(sampleRate: 16_000, featureDim: 128),
             modelConfig: sherpaOnnxOfflineModelConfig(
                 tokens: "\(base)/tokens.txt",
                 whisper: sherpaOnnxOfflineWhisperModelConfig(
@@ -167,8 +172,8 @@ final class WhisperNikudSTT: StreamingSTT {
         return false
     }
 
-    /// One window, one model pass, on whichever lane is free. The two lanes are the two recognisers
-    /// running in parallel: window n is still decoding while window n+1 starts.
+    /// One window, one model pass, on whichever lane is free. The two lanes run in parallel:
+    /// window n is still decoding while window n+1 starts.
     private func decode(window: [Float], rate: Double) {
         lock.lock()
         lane = (lane + 1) % lanes.count
@@ -176,7 +181,13 @@ final class WhisperNikudSTT: StreamingSTT {
         lock.unlock()
         queue.async { [weak self] in
             guard let self, let recognizer = self.recognizer else { return }
-            let text = recognizer.decode(samples: window, sampleRate: Int(rate))
+            // A fresh stream per window: a stream keeps the audio it was given, so a reused one
+            // would hand the model this window *and* the previous one. The weights are shared —
+            // that is what lets both lanes decode at once for one copy of the model in memory.
+            let stream = recognizer.createStream()
+            stream.acceptWaveform(samples: window, sampleRate: Int(rate))
+            recognizer.decode(stream: stream)
+            let text = recognizer.getResult(stream: stream)
                 .text
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return }

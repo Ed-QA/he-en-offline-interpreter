@@ -34,6 +34,11 @@ jobs:
           python -m pip install --quiet "transformers==4.46.3" "torch==2.5.1" "onnx==1.17.0" "onnxruntime==1.20.1" "sentencepiece==0.2.0" "optimum[exporters]==1.24.0" huggingface_hub
           python Tools/prepare_stt_nikud.py
           ls -lh Model/WhisperNikud || true
+          # The gate that was missing: build the recogniser with the same runtime the app links and
+          # decode a Hebrew sentence. The app used to die on exactly this step, and nothing here
+          # could see it — the tests only looked at file names.
+          python -m pip install --quiet sherpa-onnx
+          python Tools/check_stt_nikud.py
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
       - name: Tokenizer pre-flight (same Swift tokenizer code as the app)

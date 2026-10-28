@@ -273,15 +273,10 @@ final class Pipeline: ObservableObject {
             let ms = Int(Date().timeIntervalSince(t0) * 1000)
             Self.trace("warmup translate \(ms) ms → \(TextUtil.sanitizeTranslation(warm))")
         }
-        // Warm the Hebrew diacritizer in the same pass as the translator: it used to load lazily
-        // on the first sentence, so the light said READY while the first sentence still paid
-        // ~1.4 s for the 293 MB session. Skipped in a test host (tests warm it themselves) and in
-        // a UI-test launch, where it would only freeze the UI the tests are driving.
-        if !Self.isRunningTests && !Self.isUITest {
-            let tNikud = Date()
-            _ = diacritize("שלום, מה שלומך?")
-            Self.trace("warmup nikud \(Int(Date().timeIntervalSince(tNikud) * 1000)) ms")
-        }
+        // The post-hoc diacritizer is gone (its model is not in the bundle any more), so there is
+        // nothing to warm here: the points come out of the recogniser itself. Warming the deleted
+        // one only printed "nikud model unavailable: … phonikud … missing" at every launch — a
+        // failure message for something the app no longer uses.
         // The app never starts listening on its own: the user presses the wide Start button.
         // (A test run must never grab the microphone or raise the permission alert either.)
         Self.trace("prepare done — waiting for Start")

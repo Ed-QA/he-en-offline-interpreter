@@ -132,31 +132,25 @@ def download():
 
 
 def convert():
-    """PyTorch -> ONNX in the layout sherpa-onnx's offline Whisper runtime reads.
+    """The checkpoint -> the ONNX layout the sherpa-onnx runtime reads, plus tokens.txt.
 
-    Exported with optimum (the same exporter the translation models already go through in this
-    project), then tokens.txt is written from Whisper's own multilingual tiktoken vocabulary:
-    lines of `<token> <id>`, the exact file and format the runtime expects beside
-    encoder_model.onnx and decoder_model.onnx.
+    The export itself is Tools/sherpa_whisper_export.py. It has to be that layout: the runtime reads
+    the cross-attention K/V of every decoder layer out of the encoder and drives the decoder with six
+    positional tensors, while an optimum export (encoder -> last_hidden_state, decoder -> input_ids +
+    encoder_hidden_states + past_key_values) has neither, which is why the app died the moment it
+    built the recogniser. tokens.txt is written from Whisper's own multilingual tiktoken vocabulary:
+    lines of `<token> <id>`, the exact file and format the runtime expects beside the two ONNX files.
     """
+    os.makedirs(OUT, exist_ok=True)
     if os.path.exists(os.path.join(OUT, "encoder_model.onnx")) and \
        os.path.exists(os.path.join(OUT, "decoder_model.onnx")):
         log("ONNX models already exported")
     else:
-        os.makedirs(OUT, exist_ok=True)
-        cmd = [sys.executable, "-m", "optimum.exporters.onnx",
-               "--model", RAW,
-               "--task", "automatic-speech-recognition",
-               "--opset", "17",
-               "--no-post-process",
-               OUT]
+        exporter = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "sherpa_whisper_export.py")
+        cmd = [sys.executable, exporter, "--model-dir", RAW, "--out", OUT]
         log("running: " + " ".join(cmd))
         subprocess.run(cmd, check=True)
-        # The cached-decoder variant is not used by sherpa-onnx and doubles the bundle.
-        past = os.path.join(OUT, "decoder_with_past_model.onnx")
-        if os.path.exists(past):
-            os.remove(past)
-            log("removed decoder_with_past_model.onnx (not used by the runtime)")
 
     tokens_path = os.path.join(OUT, "tokens.txt")
     if not os.path.exists(tokens_path) or os.path.getsize(tokens_path) == 0:
@@ -192,28 +186,25 @@ def quantize():
         log(f"  {os.path.getsize(src) / 1e6:.1f} MB fp32 -> "
             f"{os.path.getsize(dst) / 1e6:.1f} MB int8 in {time.time() - t0:.0f}s")
 
-    # The fp32 exports exist only as input to quantization. Leaving them in Model/ put ~3 GB of
-    # dead weight into the app bundle and into every IPA — they are deleted the moment int8 exists.
+    # Only three files may leave this step: the two int8 models and tokens.txt. Everything else in
+    # Model/WhisperNikud is an input to quantization (the ~3 GB fp32 exports and the sidecar ONNX
+    # writes for anything over 2 GB, whatever it is called this time) and would ship as dead weight
+    # in the app bundle and in every IPA. The sweep is by pattern, not by remembered file name: a
+    # sidecar that slipped through would be 2.5 GB nobody asked for.
+    keep = {"encoder_model.int8.onnx", "decoder_model.int8.onnx", "tokens.txt"}
+    # The int8 files must stand alone before the sweep removes what they could be pointing at: an
+    # int8 model that still referenced the fp32 sidecar would be dead the moment the sidecar goes.
+    for name in ("encoder_model.int8.onnx", "decoder_model.int8.onnx"):
+        if uses_external_data(os.path.join(OUT, name)):
+            raise SystemExit(f"[prepare_stt_nikud] {name} still references external data - "
+                             "the sidecar it needs would be removed, so nothing is deleted")
     for name in sorted(os.listdir(OUT)):
-        if name.endswith(".onnx") and not name.endswith(".int8.onnx"):
-            path = os.path.join(OUT, name)
-            size = os.path.getsize(path) / 1e6
-            os.remove(path)
-            log(f"removed fp32 {name} ({size:.1f} MB) - only int8 ships")
-
-    # ONNX splits a fp32 export larger than 2 GB into a sidecar named `<model>.onnx_data`, which the
-    # loop above never matches: that is why 2.5 GB of fp32 encoder weights used to ship inside the
-    # app while the runtime only opens encoder_model.int8.onnx. The int8 file is self-contained, but
-    # that is checked here instead of assumed — if the int8 encoder still pointed at the sidecar,
-    # deleting it would leave the recogniser unable to load at all.
-    sidecar = os.path.join(OUT, "encoder_model.onnx_data")
-    if os.path.exists(sidecar):
-        if uses_external_data(os.path.join(OUT, "encoder_model.int8.onnx")):
-            log("encoder_model.int8.onnx still references external data - sidecar kept")
-        else:
-            size = os.path.getsize(sidecar) / 1e6
-            os.remove(sidecar)
-            log(f"removed fp32 encoder_model.onnx_data ({size:.1f} MB) - only int8 ships")
+        if name in keep:
+            continue
+        path = os.path.join(OUT, name)
+        size = os.path.getsize(path) / 1e6
+        os.remove(path)
+        log(f"removed {name} ({size:.1f} MB) - only int8 ships")
 
 
 def uses_external_data(path):
@@ -221,6 +212,94 @@ def uses_external_data(path):
     import onnx
     model = onnx.load(path, load_external_data=False)
     return any(i.data_location == onnx.TensorProto.EXTERNAL for i in model.graph.initializer)
+
+
+def stamp_encoder_metadata():
+    """Write the metadata sherpa-onnx reads out of the encoder. Without it the app dies on Start.
+
+    sherpa-onnx infers nothing from the graph: `InitEncoder` reads n_mels, n_text_layer, n_text_ctx,
+    n_text_state, n_vocab, sot, eot, blank_id, translate, transcribe, is_multilingual, no_timestamps,
+    no_speech, sot_sequence, all_language_tokens and all_language_codes out of the encoder's metadata
+    and **aborts the process** when one is missing — "'n_mels' does not exist in the metadata" is
+    the message, and it takes the whole app down with it the moment the recogniser is built.
+    optimum's export writes none of these keys, which is why the phone closed on Start. The values
+    come from the checkpoint's own config and tokenizer — the same ones sherpa-onnx's
+    scripts/whisper/export-onnx.py writes.
+    """
+    import onnx
+    from transformers import WhisperConfig, WhisperTokenizer
+
+    path = os.path.join(OUT, "encoder_model.int8.onnx")
+    config = WhisperConfig.from_pretrained(RAW)
+    # The *slow* tokenizer on purpose: half the Hebrew checkpoints on Hugging Face ship vocab.json
+    # and merges.txt but no tokenizer.json, and the fast one needs tokenizer.json. The slow one is
+    # a port of Whisper's own tokenizer and exposes the same ids.
+    tokenizer = WhisperTokenizer.from_pretrained(RAW)
+
+    # blank_id is the id of the space token ("Ġ" in GPT-2 byte-level BPE). Read it from the file we
+    # just wrote instead of asking the tokenizer, whose encode() adds the special tokens by default.
+    space_id = None
+    with open(os.path.join(OUT, "tokens.txt"), "r", encoding="utf-8") as fh:
+        for line in fh:
+            parts = line.split()
+            if len(parts) == 2 and parts[0] == "Ġ":
+                space_id = int(parts[1])
+                break
+    if space_id is None:
+        raise SystemExit("[prepare_stt_nikud] tokens.txt has no space token - cannot set blank_id")
+
+    codes = list(tokenizer.all_language_codes)
+    meta = {
+        "model_type": "whisper",
+        "version": "1",
+        "n_mels": config.num_mel_bins,
+        "n_audio_ctx": config.max_source_positions,
+        "n_audio_state": config.d_model,
+        "n_audio_head": config.encoder_attention_heads,
+        "n_audio_layer": config.encoder_layers,
+        "n_vocab": config.vocab_size,
+        "n_text_ctx": config.max_target_positions,
+        "n_text_state": config.d_model,
+        "n_text_head": config.decoder_attention_heads,
+        "n_text_layer": config.decoder_layers,
+        "sot": tokenizer.sot,
+        "eot": tokenizer.eot,
+        "blank_id": space_id,
+        "translate": tokenizer.translate,
+        "transcribe": tokenizer.transcribe,
+        "no_timestamps": tokenizer.no_timestamps,
+        "no_speech": tokenizer.no_speech,
+        "sot_prev": tokenizer.sot_prev,
+        "sot_lm": tokenizer.sot_lm,
+        "is_multilingual": int(len(codes) > 0),
+        "sot_index": list(tokenizer.sot_sequence).index(tokenizer.sot),
+        "sot_sequence": ",".join(str(t) for t in tokenizer.sot_sequence),
+        "all_language_tokens": ",".join(str(t) for t in tokenizer.all_language_tokens),
+        "all_language_codes": ",".join(codes),
+        "non_speech_tokens": ",".join(str(t) for t in tokenizer.non_speech_tokens),
+    }
+
+    model = onnx.load(path)
+    while len(model.metadata_props):
+        model.metadata_props.pop()
+    for key, value in meta.items():
+        entry = model.metadata_props.add()
+        entry.key = key
+        entry.value = str(value)
+    onnx.save(model, path)
+
+    # Quantization rewrites the graph; the keys are verified on the file that actually ships.
+    have = {p.key for p in onnx.load(path, load_external_data=False).metadata_props}
+    needed = ["n_mels", "n_text_layer", "n_text_ctx", "n_text_state", "n_vocab", "sot", "eot",
+              "blank_id", "translate", "transcribe", "is_multilingual", "no_timestamps",
+              "no_speech", "sot_sequence"]
+    if meta["is_multilingual"]:
+        needed += ["all_language_tokens", "all_language_codes"]
+    missing = [k for k in needed if k not in have]
+    if missing:
+        raise SystemExit(f"[prepare_stt_nikud] encoder metadata did not stick: {missing}")
+    log(f"encoder metadata written: {len(meta)} keys, n_mels={meta['n_mels']}, "
+        f"n_vocab={meta['n_vocab']}, {len(codes)} languages, blank_id={space_id}")
 
 
 def write_meta():
@@ -254,6 +333,7 @@ def main():
     log(f"checkpoint in use: {CHOSEN}")
     convert()
     quantize()
+    stamp_encoder_metadata()
     write_meta()
     total = sum(os.path.getsize(os.path.join(OUT, f)) for f in os.listdir(OUT))
     log(f"{OUT}: {total / 1e6:.1f} MB - {sorted(os.listdir(OUT))}")
