@@ -11,40 +11,6 @@ struct LogEntry: Identifiable, Equatable {
     var complete: Bool { !forced }
 }
 
-enum GateMode: String, CaseIterable, Identifiable {
-    case fast, balanced, complete
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .fast: return "Fast (quick chunks)"
-        case .balanced: return "Balanced"
-        case .complete: return "Complete (wait for sense)"
-        }
-    }
-    var scoreThreshold: Int {
-        switch self {
-        case .fast: return 1
-        case .balanced: return 2
-        case .complete: return 3
-        }
-    }
-    var silenceToEmit: TimeInterval {
-        switch self {
-        case .fast: return 0.45
-        case .balanced: return 0.7
-        case .complete: return 1.0
-        }
-    }
-    var maxPendingAge: TimeInterval {
-        switch self {
-        case .fast: return 3.0
-        case .balanced: return 6.0
-        case .complete: return 10.0
-        }
-    }
-    var hardMaxAge: TimeInterval { maxPendingAge + 3.0 }
-}
-
 enum TextUtil {
     /// Merge streaming text with overlap: longest word-level suffix of `a` that is a prefix of `b`.
     static func mergeOverlap(_ a: String, _ b: String) -> String {

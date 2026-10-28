@@ -20,7 +20,8 @@ enum TargetLanguage: String, CaseIterable, Identifiable {
 enum Prefs {
     static let voiceKey = "heen.voiceIdentifier"
     static let rateKey = "heen.rate"
-    static let gateKey = "heen.gateMode"
+    // The chunking mode key is gone: how speech is cut into windows is the recogniser's scheme, and
+    // whether a sentence is complete is the gate's, so neither is a stored user choice any more.
     static let targetKey = "heen.target"
     static let voiceKeyUK = "heen.voice.uk"
     static let rateKeyUK = "heen.rate.uk"
@@ -112,11 +113,6 @@ enum Prefs {
     static var rate: Float {
         get { rate(for: .en) }
         set { setRate(newValue, for: .en) }
-    }
-
-    static var gateMode: GateMode {
-        get { store.string(forKey: gateKey).flatMap(GateMode.init(rawValue:)) ?? .balanced }
-        set { store.set(newValue.rawValue, forKey: gateKey) }
     }
 
     /// Back to factory defaults: no keys stored, so a fresh install and a reset behave the same.

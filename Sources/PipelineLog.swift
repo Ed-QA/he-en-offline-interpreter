@@ -72,7 +72,7 @@ extension Pipeline {
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         out += "app: \(version) (\(build))\n"
         out += "device: \(UIDevice.current.name), iOS \(UIDevice.current.systemVersion)\n"
-        out += "state: \(running ? "running" : "stopped"), \(status.rawValue), gate \(gate.mode.rawValue)\n"
+        out += "state: \(running ? "running" : "stopped"), \(status.rawValue)\n"
         out += "engine: \(engineStatus)\n"
         switch modelsState {
         case .loading: out += "models: loading\n"

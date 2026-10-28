@@ -195,7 +195,7 @@ extension Pipeline {
     func tick() {
         guard running else { return }
         stt.restartIfNeeded(maxSeconds: 50)
-        if !accumulated.isEmpty && stt.silenceDuration >= gate.mode.silenceToEmit {
+        if !accumulated.isEmpty && stt.silenceDuration >= HebrewCompletenessGate.silenceToEmit {
             evaluate(accumulated, isFinal: false)
         }
         // Item 8: speak the moment a translation is ready. The old condition also waited for the

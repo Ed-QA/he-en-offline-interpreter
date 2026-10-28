@@ -3,7 +3,13 @@ import Foundation
 /// Hebrew-only real-time "is this sentence complete by logic and sense?" gate.
 /// Pure, deterministic, unit-testable. No network, no model, no state beyond config.
 struct HebrewCompletenessGate {
-    var mode: GateMode = .balanced
+    /// Fixed thresholds — one behaviour, no user-facing chunking mode. A sentence is emitted when it
+    /// is complete by logic and sense; that is the intent, and it is not a setting. How speech is cut
+    /// into windows belongs to the recogniser (2.0 s window, 1.7 s stride), not to this gate.
+    static let silenceToEmit: TimeInterval = 0.7
+    static let scoreThreshold = 2
+    static let maxPendingAge: TimeInterval = 6.0
+    static let hardMaxAge: TimeInterval = 9.0
 
     struct Outcome: Equatable {
         let emit: Bool
@@ -63,7 +69,7 @@ struct HebrewCompletenessGate {
 
         if terminal { score += 2; notes.append("terminal-punct") }
         if isSTTFinal { score += 1; notes.append("stt-final") }
-        if trailingSilence >= mode.silenceToEmit { score += 1; notes.append("pause") }
+        if trailingSilence >= Self.silenceToEmit { score += 1; notes.append("pause") }
         if words.count >= 4 { score += 1; notes.append("length-ok") }
         // The anti-fragment penalties below only make sense *while* the utterance is still open.
         // At a real STT endpoint a one-word answer ("כן", "תודה", "מים") is a complete utterance
@@ -76,7 +82,7 @@ struct HebrewCompletenessGate {
         if HebrewCompletenessGate.subordinators.contains(firstBare), words.count < 5, !terminal {
             score -= 1; notes.append("open-subordinate")
         }
-        if HebrewCompletenessGate.questionWords.contains(firstBare), (terminal || trailingSilence >= mode.silenceToEmit) {
+        if HebrewCompletenessGate.questionWords.contains(firstBare), (terminal || trailingSilence >= Self.silenceToEmit) {
             score += 1; notes.append("question-closed")
         }
         // Hebrew prefixes glued to a word are fine; a standalone prefix token is not.
@@ -85,9 +91,9 @@ struct HebrewCompletenessGate {
         let hardBlocked = lastIsNeverEnd || unbalanced
         // A real endpoint is evidence that the speaker finished: any positive score emits, so a
         // short-but-final answer is never swallowed. Dangling connectors stay blocked either way.
-        let passed = (score >= mode.scoreThreshold || (isSTTFinal && score >= 1)) && !hardBlocked
-        let forced = pendingAge >= mode.maxPendingAge && words.count >= 3 && !hardBlocked
-        let escape = pendingAge >= mode.hardMaxAge && words.count >= 3
+        let passed = (score >= Self.scoreThreshold || (isSTTFinal && score >= 1)) && !hardBlocked
+        let forced = pendingAge >= Self.maxPendingAge && words.count >= 3 && !hardBlocked
+        let escape = pendingAge >= Self.hardMaxAge && words.count >= 3
 
         if passed { return Outcome(emit: true, forced: false, score: score, reason: notes.joined(separator: ",")) }
         if forced || escape { return Outcome(emit: true, forced: true, score: score, reason: "forced:" + notes.joined(separator: ",")) }

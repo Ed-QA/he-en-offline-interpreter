@@ -85,7 +85,7 @@ final class SettingsUITests: XCTestCase {
     }
 
     /// Everything a user actually needs and nothing else: pick input/output, pick a voice, set the
-    /// rate, hear it, choose how the app chunks speech, send the logs.
+    /// rate, hear it, send the logs.
     func testSettingsOffersTheNeededControls() {
         let app = launch()
         openSettings(app)
@@ -94,7 +94,7 @@ final class SettingsUITests: XCTestCase {
         // a snapshot per pass): the earlier scan (10 swipes down + 10 up per row, then a snapshot
         // per pass) took 110 s and hit the per-test allowance in CI. It still scrolls first, because
         // the dark-mode run uses large text, where even these rows start below the fold.
-        for id in ["languagePicker", "micPicker", "outputPicker", "voicePicker", "rateSlider", "testVoice", "gateModePicker"] {
+        for id in ["languagePicker", "micPicker", "outputPicker", "voicePicker", "rateSlider", "testVoice"] {
             XCTAssertTrue(scrollTo(app, id).waitForExistence(timeout: 5),
                           "\(id) is missing from Settings")
         }
@@ -116,29 +116,6 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 20),
                       "settings closed itself when the voice sample played")
         closeSettings(app)
-    }
-
-    func testChunkingModeSurvivesARelaunch() {
-        let app = launch()
-        openSettings(app)
-
-        let picker = scrollTo(app, "gateModePicker")
-        XCTAssertTrue(picker.waitForExistence(timeout: 20), "the chunking picker is missing")
-        picker.tap()
-        let option = app.descendants(matching: .any)["Complete (wait for sense)"].firstMatch
-        XCTAssertTrue(option.waitForExistence(timeout: 10), "the chunking options did not open")
-        option.tap()
-
-        closeSettings(app)
-        app.terminate()
-
-        // Second launch, without the reset flag: the choice must come back by itself.
-        let relaunched = launch(resetPrefs: false)
-        openSettings(relaunched)
-        let shown = scrollTo(relaunched, "gateModePicker")
-        XCTAssertTrue(shown.waitForExistence(timeout: 20))
-        XCTAssertTrue(wait(15) { shows(relaunched, shown, "Complete") },
-                      "the chunking mode was not remembered across a relaunch (picker says \"\(shown.label)\")")
     }
 
     func testSendLogsFromSettingsOpensTheNativeShareSheet() {

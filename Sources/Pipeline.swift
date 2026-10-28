@@ -37,9 +37,6 @@ final class Pipeline: ObservableObject {
     @Published var hebrewText = ""
     @Published var englishText = ""
     @Published var log: [LogEntry] = []
-    @Published var gateMode: GateMode = Prefs.gateMode {
-        didSet { gate.mode = gateMode; Prefs.gateMode = gateMode }
-    }
     /// The two audio choices, kept separate: which microphone to listen on and where the
     /// translation comes out. Both are applied through the documented `AVAudioSession` calls and
     /// remembered on the device.
@@ -149,7 +146,13 @@ final class Pipeline: ObservableObject {
     // MARK: - Setup
 
     init(stt: (any StreamingSTT)? = nil) {
-        self.stt = stt ?? WhisperNikudSTT()
+        let recognizer = stt ?? WhisperNikudSTT()
+        // The lane counters go into the same trace the rest of the app writes, so the numbers the
+        // design depends on — how a decode compares with the 3.4 s a lane is given, how far the
+        // backlog grew, whether windows ever finished out of order — are readable in the log panel
+        // instead of being guessed at.
+        (recognizer as? WhisperNikudSTT)?.trace = { message in Pipeline.trace("stt \(message)") }
+        self.stt = recognizer
         // `didSet` does not run during initialisation, so the stored preferences have to be
         // pushed into the speaker and the gate explicitly. Without this a remembered voice or
         // rate only took effect after the user touched the picker again.
@@ -172,7 +175,6 @@ final class Pipeline: ObservableObject {
 
     /// Pushes the current settings into the objects that consume them.
     func applySettings() {
-        gate.mode = gateMode
         speaker.voiceIdentifier = voiceIdentifier
         speaker.rate = rate
         observeAudioRoute()
@@ -190,7 +192,6 @@ final class Pipeline: ObservableObject {
 
     /// Back to the shipped defaults, and forget them so the next launch is a fresh install.
     func resetSettings() {
-        gateMode = .balanced
         voiceIdentifier = Speaker.defaultVoice(for: target)?.identifier
         rate = Prefs.defaultRate
         Prefs.reset()
@@ -338,6 +339,8 @@ final class Pipeline: ObservableObject {
         timer?.invalidate()
         timer = nil
         stt.stop()
+        // The numbers for the session that just ended, in the log the owner reads and sends back.
+        if let whisper = stt as? WhisperNikudSTT { Self.trace(whisper.statsLine) }
         stt.muted = false
         speaker.stop()
         running = false

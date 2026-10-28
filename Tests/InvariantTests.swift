@@ -181,7 +181,6 @@ final class InvariantTests: XCTestCase {
         for _ in 0..<2_000 {
             let text = randomUtterance(&fuzz)
             var gate = HebrewCompletenessGate()
-            gate.mode = fuzz.pick(GateMode.allCases)
             let silence = fuzz.chance(2) ? 0.0 : 1.5
             let isFinal = fuzz.chance(2)
             let age = fuzz.chance(3) ? 30.0 : 0.2
@@ -202,7 +201,7 @@ final class InvariantTests: XCTestCase {
     }
 
     /// Metamorphic test: adding evidence (a pause, an STT endpoint, a full stop) may turn a hold
-    /// into an emit, but it must never turn an emit into a hold — otherwise the live interpreter
+    /// into an emit, but it must never turn an emit into a hold â€” otherwise the live interpreter
     /// would drop a sentence it had already decided to speak.
     func testGateEmissionIsMonotoneInEvidence() {
         var fuzz = Fuzz(seed: 0x0000_90A1)
@@ -211,7 +210,6 @@ final class InvariantTests: XCTestCase {
             let text = randomUtterance(&fuzz)
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             var gate = HebrewCompletenessGate()
-            gate.mode = fuzz.pick(GateMode.allCases)
 
             let base = gate.evaluate(text, trailingSilence: 0.0, isSTTFinal: false, pendingAge: 0.1)
             guard base.emit else { continue }
@@ -235,7 +233,6 @@ final class InvariantTests: XCTestCase {
             let text = randomUtterance(&fuzz)
             let spaced = "   " + text.replacingOccurrences(of: " ", with: "  ") + "\t\n "
             var gate = HebrewCompletenessGate()
-            gate.mode = fuzz.pick(GateMode.allCases)
 
             let plain = gate.evaluate(text, trailingSilence: 0.0, isSTTFinal: true, pendingAge: 0.2)
             let messy = gate.evaluate(spaced, trailingSilence: 0.0, isSTTFinal: true, pendingAge: 0.2)

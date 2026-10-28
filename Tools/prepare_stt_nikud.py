@@ -336,7 +336,11 @@ def stamp_encoder_metadata():
         "sot_lm": token_id("<|startoflm|>"),
         "is_multilingual": int(len(pairs) > 0),
         "sot_index": 0,
-        "sot_sequence": ",".join(str(t) for t in (sot, token_id("<|en|>"), transcribe, no_timestamps)),
+        # The prompt the decoder starts from. It must name the language the audio is in: sherpa-onnx
+        # takes this vector verbatim as the initial tokens, and the only other place it looks at
+        # `language` is language *candidates*. Stamped with `<|en|>` the model is told it is hearing
+        # English while it is handed Hebrew, and it answers with nothing — `decoded: ''`.
+        "sot_sequence": ",".join(str(t) for t in (sot, token_id("<|he|>"), transcribe, no_timestamps)),
         "all_language_tokens": ",".join(str(tid) for _, tid in pairs),
         "all_language_codes": ",".join(tok[2:-2] for tok, _ in pairs),
     }

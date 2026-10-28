@@ -10,7 +10,8 @@ struct SettingsSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Item 9: three blocks only — voice, chunking, and Send logs. Routing is iOS's job:
+                // Item 9: two blocks only — voice and Send logs. Routing is iOS's job, and how speech is cut
+    // into sentences is the recogniser's own 2.0 s / 1.7 s window scheme, not a user setting.
                 // the row below only *shows* what the system is really using, and it follows the
                 // system's own route-change notification. There is no app-side selector to go stale.
                 Section {
@@ -59,16 +60,6 @@ struct SettingsSheet: View {
                         .accessibilityIdentifier("muteWhileSpeakingToggle")
                 } header: {
                     Text("Voice")
-                }
-                Section {
-                    Picker("Mode", selection: $p.gateMode) {
-                        ForEach(GateMode.allCases) { m in
-                            Text(m.label).tag(m)
-                        }
-                    }
-                    .accessibilityIdentifier("gateModePicker")
-                } header: {
-                    Text("Chunking")
                 }
                 Section {
                     // The row is always present: while the report is still being written it renders
